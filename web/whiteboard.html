@@ -834,7 +834,7 @@ const I18N = {
     'insp.dash':'虚线', 'insp.opacity':'透明度', 'insp.textColor':'文字颜色', 'insp.size':'字号',
     'insp.align':'对齐', 'insp.image':'图片', 'insp.width':'宽', 'insp.height':'高',
     'insp.lockRatio':'锁定长宽比', 'insp.original':'原始', 'insp.top':'置顶', 'insp.bottom':'置底',
-    'insp.dup':'复制', 'insp.fit':'原比例', 'insp.del':'删除', 'insp.edgeColor':'连线颜色'
+    'insp.dup':'复制', 'insp.fit':'原始尺寸', 'insp.del':'删除', 'insp.edgeColor':'连线颜色'
   },
   en: {
     'tool.select':'Select', 'tool.pan':'Pan', 'tool.note':'Note', 'tool.image':'Image',
@@ -853,7 +853,7 @@ const I18N = {
     'insp.dash':'Dashed', 'insp.opacity':'Opacity', 'insp.textColor':'Text color', 'insp.size':'Size',
     'insp.align':'Align', 'insp.image':'Image', 'insp.width':'W', 'insp.height':'H',
     'insp.lockRatio':'Lock aspect ratio', 'insp.original':'Original', 'insp.top':'Front', 'insp.bottom':'Back',
-    'insp.dup':'Duplicate', 'insp.fit':'Reset ratio', 'insp.del':'Delete', 'insp.edgeColor':'Edge color'
+    'insp.dup':'Duplicate', 'insp.fit':'Original size', 'insp.del':'Delete', 'insp.edgeColor':'Edge color'
   }
 };
 let LANG = 'zh';
@@ -1696,7 +1696,7 @@ function imgInspHTML(im){
     '<div class="insp-row insp-acts">'+
       '<button class="sbtn" data-act="idup" title="复制">复制</button>'+
       '<button class="sbtn" data-act="ifront" title="置于顶层">置顶</button>'+
-      '<button class="sbtn" data-act="ifit" title="还原原始比例">原比例</button>'+
+      '<button class="sbtn" data-act="ifit" title="还原为图片原始像素尺寸">原始尺寸</button>'+
       '<button class="sbtn danger" data-act="idel">删除</button></div>';
 }
 function shapeInspHTML(o){
@@ -4160,7 +4160,7 @@ window.addEventListener('pagehide', flushOnExit);   // 移动端/后台回收不
 /* ==================================================================
    20.4 图片对象：插入（本地 / 网络 / 拖放 / 粘贴）与渲染
 ================================================================== */
-const IMG_STORE_MAX_SIDE = 3200;          // 覆盖 1920/3840 级图框，避免导出时被放大
+const IMG_STORE_MAX_SIDE = 4096;          // 覆盖手机/相机常见分辨率（4032 / 4000）与 4K 图框
 const IMG_STORE_MAX_BYTES = 1200 * 1024;
 let imgInsertAt = null;
 let quotaWarned = false;
@@ -4412,7 +4412,7 @@ async function shrinkDataUrl(dataUrl){
     // 浏览器解不出尺寸 → 该格式不被支持（如 TIFF/HEIC），不要以坏图入文档
     if(!w || !h) return null;
     if(dataUrl.length <= IMG_STORE_MAX_BYTES && Math.max(w, h) <= IMG_STORE_MAX_SIDE){
-      return { src: dataUrl, nw: w, nh: h };
+      return { src: dataUrl, nw: w, nh: h, capped: false };
     }
     const k = Math.min(1, IMG_STORE_MAX_SIDE / Math.max(w, h));
     const cw = Math.max(1, Math.round(w*k)), ch = Math.max(1, Math.round(h*k));
@@ -4421,7 +4421,7 @@ async function shrinkDataUrl(dataUrl){
     const g = c.getContext('2d');
     g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, cw, ch);
     g.drawImage(im, 0, 0, cw, ch);
-    return { src: c.toDataURL('image/jpeg', 0.92), nw: w, nh: h };
+    return { src: c.toDataURL('image/jpeg', 0.92), nw: w, nh: h, capped: true };
   }catch(err){
     return null;
   }
@@ -4449,12 +4449,10 @@ async function urlToSrc(url){
   }
 }
 function fitImgSize(nw, nh){
-  const MAX = 380, MIN = 130;
+  /* 按图片真实像素插入：1 世界单位 = 1 像素。
+     这样把图放进图框后导出（1:1 渲染）就是原图分辨率，不会被上采样。 */
   if(!nw || !nh) return { w: 300, h: 200 };
-  const k = Math.min(1, MAX / Math.max(nw, nh));
-  let w = nw*k, h = nh*k;
-  const k2 = Math.max(1, MIN / Math.min(w, h));
-  return { w: Math.round(w*k2), h: Math.round(h*k2) };
+  return { w: Math.max(1, Math.round(nw)), h: Math.max(1, Math.round(nh)) };
 }
 function addImage(src, nw, nh, at, name){
   const sz = fitImgSize(nw, nh);
@@ -4466,6 +4464,8 @@ function addImage(src, nw, nh, at, name){
   doOps([{ k:'img.add', im: im }]);
   pushHist([{ k:'img.remove', id: im.id }], [{ k:'img.add', im: im }]);
   syncImages();
+  // 原尺寸的图常常远大于视口：插入后自动适配，避免只看到一角（与新建图框一致）
+  if(im.w*view.z > VW*0.92 || im.h*view.z > VH*0.92) zoomToRect(im.x, im.y, im.w, im.h, 0.9);
   requestDraw();
   return im;
 }
@@ -4482,12 +4482,14 @@ async function insertFiles(files, at){
   const base = at || insertTarget();
   const added = [];
   const bad = [];
+  let cappedAny = false;
   for(let i=0;i<list.length;i++){
     const f = list[i];
     try{
       const du = await fileToDataUrl(f);
       const r = await shrinkDataUrl(du);
       if(!r){ bad.push(f.name || '未命名'); continue; }
+      if(r.capped) cappedAny = true;
       added.push(addImage(r.src, r.nw, r.nh, { x: base.x + added.length*26, y: base.y + added.length*26 }, f.name || ''));
     }catch(err){ bad.push(f.name || '未命名'); }
   }
@@ -4496,7 +4498,8 @@ async function insertFiles(files, at){
     sel.clear();
     added.forEach(im => sel.add('i:'+im.id));
     requestDraw();
-    toast(added.length > 1 ? ('已插入 ' + added.length + ' 张图片') : ('已插入图片：' + (list[0].name || '未命名').slice(0, 28)));
+    const capTip = cappedAny ? ('（原图超过 ' + IMG_STORE_MAX_SIDE + 'px，已压缩存储）') : '';
+    toast((added.length > 1 ? ('已插入 ' + added.length + ' 张图片') : ('已插入图片：' + (list[0].name || '未命名').slice(0, 28))) + capTip);
   } else if(bad.length){
     toast(bad.length > 1 ? (bad.length + ' 张图片无法解码，请改用 PNG / JPEG / GIF / WebP / SVG') :
                            ('该格式无法解码，请改用 PNG / JPEG / GIF / WebP / SVG'));

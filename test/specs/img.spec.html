@@ -1,0 +1,155 @@
+<!DOCTYPE html><meta charset="utf-8"><title>img 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:420px;border:1px solid #c8ccd3;background:#fff;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 7：图片按原始像素尺寸插入
+   历史行为是压到长边 380，导致图框内贴图导出时被上采样。 */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80); } return false; }
+
+function makePng(w, h, colorful){
+  var c = document.createElement('canvas'); c.width = w; c.height = h;
+  var g = c.getContext('2d');
+  g.fillStyle = colorful ? '#8fb8e0' : '#eeeeee'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#2E3A46'; g.fillRect(w*0.1, h*0.1, w*0.4, h*0.3);
+  return c.toDataURL('image/png');
+}
+function resetView(T){
+  T.view.x = 0; T.view.y = 0; T.view.z = 1; T.applyView();
+}
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, D = W.document, T = W.__T;
+
+  T.doOps([{ k:'clear' }]);
+  await wait(150);
+
+  /* ---------- A. 常见尺寸都按真实像素 ---------- */
+  var cases = [[1600,900],[1920,1080],[480,270],[900,1600],[3200,1800]];
+  for(var i=0;i<cases.length;i++){
+    var cw = cases[i][0], ch = cases[i][1];
+    var png = makePng(cw, ch, true);
+    resetView(T);
+    var im = T.addImage(png, cw, ch, { x:500, y:400 }, 'case' + i + '.png');
+    await wait(60);
+    ck(im.w === cw && im.h === ch,
+       '插入 ' + cw + '×' + ch + ' → 世界尺寸 ' + im.w + '×' + im.h + '（应为原始像素）');
+  }
+
+  /* ---------- B. 尺寸比例没被破坏 ---------- */
+  var last = T.doc.images[Object.keys(T.doc.images).slice(-1)[0]];
+  ck(Math.abs(last.w / last.h - 3200 / 1800) < 0.01,
+     '宽高比与源图一致（' + last.w + '×' + last.h + ' ≈ ' + (3200/1800).toFixed(3) + '）');
+
+  /* ---------- C. 超大图插入后自动适配视图 ---------- */
+  resetView(T);
+  var bigW = 5000, bigH = 900;
+  var big = T.addImage(makePng(bigW, bigH, false), bigW, bigH, { x:600, y:400 }, 'big.png');
+  await wait(200);
+  ck(big.w === bigW && big.h === bigH, '超大图仍按原始像素（' + big.w + '×' + big.h + '）');
+  ck(T.view.z < 1, '插入超大图后自动缩小视图（z=' + T.view.z.toFixed(3) + '）');
+  var vpRect = D.getElementById('viewport').getBoundingClientRect();
+  var screenW = big.w * T.view.z;
+  ck(screenW <= vpRect.width * 1.02,
+     '插入后图片整体进入视口（屏上 ' + Math.round(screenW) + 'px ≤ 视口 ' + Math.round(vpRect.width) + 'px）');
+
+  /* ---------- D. 面板显示原始尺寸 ---------- */
+  resetView(T);
+  T.sel.clear(); T.sel.add('i:' + big.id); T.requestDraw();
+  await wait(300);
+  var ins = D.getElementById('inspector');
+  ck((ins.textContent || '').indexOf('原始 ' + bigW + '×' + bigH) >= 0,
+     '样式面板显示「原始 ' + bigW + '×' + bigH + '」');
+  ck((ins.textContent || '').indexOf('原始尺寸') >= 0, '面板按钮文案为「原始尺寸」');
+
+  /* ---------- E. 缩过之后能一键还原成原始像素 ---------- */
+  var smallW = 300, smallH = Math.round(smallW * bigH / bigW);
+  T.doOps([{ k:'img.update', id: big.id, patch:{ w: smallW, h: smallH }, ts: Date.now() }]);
+  await wait(120);
+  ck(T.doc.images[big.id].w === smallW, '先把图片改小（' + smallW + '×' + smallH + '）');
+  T.imgFit();
+  await wait(150);
+  var back = T.doc.images[big.id];
+  ck(back.w === bigW && back.h === bigH, '「原始尺寸」还原为 ' + back.w + '×' + back.h);
+
+  /* ---------- F. 导出时按原图分辨率绘制（不再上采样到 380 级） ---------- */
+  T.doOps([{ k:'clear' }]);
+  await wait(120);
+  resetView(T);
+  var f = T.addFrame(960, 540, '16:9');
+  await wait(150);
+  var img2 = T.addImage(makePng(1920, 1080, true), 1920, 1080, { x:f.x + f.w/2, y:f.y + f.h/2 }, 'fill.png');
+  await wait(200);
+  T.doOps([{ k:'img.update', id: img2.id, patch:{ x:f.x, y:f.y, w:f.w, h:f.h }, ts: Date.now() }]);
+  await wait(200);
+  T.sel.clear(); T.requestDraw();
+  var out = T.renderExport({ rect: { x:f.x, y:f.y, w:f.w, h:f.h } });
+  await wait(120);
+  ck(!!out && out.W === Math.round(f.w) && out.H === Math.round(f.h),
+     '图框导出与框尺寸 1:1（' + (out && out.W) + '×' + (out && out.H) + '，框 ' + f.w + '×' + f.h + '）');
+  if(out && out.canvas){
+    // 贴图铺满整框：四角与中心都应是非白像素，说明画的是原图而不是被缩小的占位
+    var g2 = out.canvas.getContext('2d');
+    var probes = [[0.5,0.5],[0.15,0.2],[0.85,0.2],[0.15,0.8],[0.85,0.8]];
+    var painted = 0;
+    for(var pi=0;pi<probes.length;pi++){
+      var px = g2.getImageData(Math.floor(out.W*probes[pi][0]), Math.floor(out.H*probes[pi][1]), 1, 1).data;
+      if(!(px[0] > 245 && px[1] > 245 && px[2] > 245)) painted++;
+    }
+    ck(painted >= 4, '图框内贴图铺满整幅（' + painted + '/5 采样点有内容）');
+  }
+
+  /* ---------- G. 真实文件插入：重编码压缩后尺寸仍为原图 ---------- */
+  T.doOps([{ k:'clear' }]);
+  await wait(120);
+  resetView(T);
+  function makeNoiseFile(w, h){
+    var nc = W.document.createElement('canvas'); nc.width = w; nc.height = h;
+    var ng = nc.getContext('2d');
+    var nd = ng.createImageData(w, h);
+    for(var ni=0; ni<nd.data.length; ni+=4){
+      nd.data[ni] = (Math.random()*255)|0;
+      nd.data[ni+1] = (Math.random()*255)|0;
+      nd.data[ni+2] = (Math.random()*255)|0;
+      nd.data[ni+3] = 255;
+    }
+    ng.putImageData(nd, 0, 0);
+    return new Promise(function(res){
+      nc.toBlob(function(b){ res(b ? new W.File([b], 'noise.png', { type:'image/png' }) : null); }, 'image/png');
+    });
+  }
+  var file = await makeNoiseFile(1600, 900);
+  ck(!!file && file.size > 1200 * 1024,
+     '构造的测试文件超过入库上限（' + Math.round((file ? file.size : 0) / 1024) + 'KB，会触发重编码）');
+  var beforeSet = {};
+  Object.keys(T.doc.images).forEach(function(id){ beforeSet[id] = 1; });
+  T.insertFiles([file], { x: 800, y: 600 });
+  var okIns = await until(function(){
+    return Object.keys(T.doc.images).some(function(id){ return !beforeSet[id]; });
+  }, 8000);
+  ck(okIns, '文件插入成功（走 insertFiles → shrinkDataUrl 真实链路）');
+  if(okIns){
+    var newId = Object.keys(T.doc.images).filter(function(id){ return !beforeSet[id]; })[0];
+    var ins2 = T.doc.images[newId];
+    ck(ins2.w === 1600 && ins2.h === 900,
+       '重编码入库后插入尺寸仍为原始像素（' + ins2.w + '×' + ins2.h + '）');
+    ck(/^data:image\/jpeg/.test(ins2.src || ''), '源图确实被重编码为 JPEG（存储压缩生效）');
+  }
+
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+ P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+ P('PROBE_END');
+})();
+</script>

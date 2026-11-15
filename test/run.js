@@ -43,7 +43,8 @@ const SPECS = [
   { name: 'op', file: 'specs/op.spec.html', desc: 'op 白名单与序列化往返' },
   { name: 'relay', type: 'node', file: 'specs/relay.spec.js', desc: '中继鉴权 / 限流 / 快照' },
   { name: 'perf', file: 'specs/perf.spec.html', desc: '全量重绘与网格缓存' },
-  { name: 'ui', file: 'specs/ui.spec.html', desc: 'a11y 与界面语言' }
+  { name: 'ui', file: 'specs/ui.spec.html', desc: 'a11y 与界面语言' },
+  { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' }
 ];
 
 /* 注入到 IIFE 末尾的测试探针 */
@@ -52,7 +53,7 @@ window.__T = {
   doc, sel, doOps, applyOp, sanitizeOp, requestDraw, renderExport, handleMsg,
   addNote, addShape, addText, addComment, addFrame, addImage,
   toggleHidden, applyColor, hitTop, hitFrame, toScreen, view, applyView,
-  loadLocal, persistNow, makeZip, crc32, exportPNG,
+  loadLocal, persistNow, makeZip, crc32, exportPNG, imgFit: () => restoreImgRatio(), insertFiles,
   syncNotes, syncImages, renderFrames, renderShapes, renderTexts, renderComments,
   renderEdges, drawBoard, drawInk, drawOverlay,
   get tool(){ return tool; },
