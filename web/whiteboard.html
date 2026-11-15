@@ -3692,6 +3692,11 @@ function netSend(m){
 }
 
 function handleMsg(m){
+  // 一条畸形消息不应该中断整个绘制/同步流程：统一在入口兜底
+  try{ handleMsgInner(m); }
+  catch(err){ console.warn('[msg] 丢弃异常消息', m && m.t, err && err.message); }
+}
+function handleMsgInner(m){
   if(!m) return;
   if(m.origin && m.origin === ORIGIN) return;   // 自己发出的消息（中继会回送）
   if(!m.origin && m.from === me.id) return;     // 兼容未带 origin 的旧客户端
@@ -3718,26 +3723,39 @@ function handleMsg(m){
       delete liveStrokes[m.id]; drawInk();
       break;
     case 'cur': {
-      let p = peers.get(m.from);
+      const pid = safeId(m.from); if(!pid) break;
+      const nm = textOr(m.name, 24);          // 远端可控 → 截断且只接受字符串
+      const cl = peerColor(m.color);
+      let p = peers.get(pid);
       if(!p){
-        p = { id:m.from, name:m.name||'协作者', color:m.color||'#8A90A0' };
-        peers.set(m.from, p); renderPresence(); toastJoin(p);
+        p = { id:pid, name:nm || '协作者', color:cl };
+        peers.set(pid, p); renderPresence(); toastJoin(p);
       }
-      p.x = m.x; p.y = m.y; p.t = now();
-      if(m.name) p.name = m.name;
-      if(m.color) p.color = m.color;
+      p.x = (m.x === null ? null : numOr(m.x, -1e7, 1e7));
+      p.y = (m.y === null ? null : numOr(m.y, -1e7, 1e7));
+      p.t = now();
+      if(nm) p.name = nm;
+      if(m.color) p.color = cl;
       if(showCursors) drawOverlay();
       break;
     }
     case 'sel': {
-      const p = peers.get(m.from);
-      if(p){ p.sel = m.ids || []; drawInk(); }
+      const pid = safeId(m.from);
+      const p = pid ? peers.get(pid) : null;
+      if(p){
+        p.sel = Array.isArray(m.ids)
+          ? m.ids.filter(x => typeof x === 'string' && x.length <= 60).slice(0, 400)
+          : [];
+        drawInk();
+      }
       break;
     }
-    case 'hello':
-      netSend({ t:'state', to:m.from, doc });
+    case 'hello': {
+      const from = safeId(m.from); if(!from) break;
+      netSend({ t:'state', to:from, doc });
       netSend({ t:'cur', x:null, y:null, name:me.name, color:me.color });
       break;
+    }
     case 'state': {
       if(m.to && m.to !== me.id) break;
       const has = docHasContent(m.doc);
@@ -3804,6 +3822,11 @@ function allMembers(){
   return list;
 }
 function initials(name){ return (name||'?').slice(-1); }
+/* 成员颜色只允许合法 hex，避免拼进 style 被注入 */
+function peerColor(c){
+  const v = colorOr(c);
+  return (v && v !== 'none') ? v : '#8A90A0';
+}
 function renderPresence(){
   const list = allMembers();
   const box = $('#presence');
@@ -3811,8 +3834,8 @@ function renderPresence(){
   const show = list.slice(0, max);
   const rest = list.length - show.length;
   let html = show.map(p=>
-    '<div class="av" style="--c:'+p.color+'" title="'+p.name+(p.self?'（你）':'')+'">'+
-    initials(p.name)+(p.self?'<span class="self"></span>':'')+'</div>'
+    '<div class="av" style="--c:'+peerColor(p.color)+'" title="'+esc(p.name)+(p.self?'（你）':'')+'">'+
+    esc(initials(p.name))+(p.self?'<span class="self"></span>':'')+'</div>'
   ).join('');
   if(rest>0) html += '<div class="av more">+'+rest+'</div>';
   box.innerHTML = html;
@@ -3820,8 +3843,8 @@ function renderPresence(){
   const count = 1 + peers.size;
   $('#peerCount').textContent = count;
   $('#peerList').innerHTML = list.map(p=>
-    '<div class="peer"><div class="av" style="--c:'+p.color+'">'+initials(p.name)+'</div>'+
-    '<span>'+p.name+(p.self?'（你）':'')+'</span>'+
+    '<div class="peer"><div class="av" style="--c:'+peerColor(p.color)+'">'+esc(initials(p.name))+'</div>'+
+    '<span>'+esc(p.name)+(p.self?'（你）':'')+'</span>'+
     '<span class="tag">'+(p.self?'本机':'在线')+'</span></div>'
   ).join('');
 
@@ -3837,7 +3860,7 @@ function toastJoin(p){
 function toast(msg, p){
   const el = document.createElement('div');
   el.className = 'toast';
-  el.innerHTML = (p ? '<div class="av" style="--c:'+p.color+'">'+initials(p.name)+'</div>' : '') + '<span>'+msg+'</span>';
+  el.innerHTML = (p ? '<div class="av" style="--c:'+peerColor(p.color)+'">'+esc(initials(p.name))+'</div>' : '') + '<span>'+esc(msg)+'</span>';
   $('#toasts').appendChild(el);
   $('#live').textContent = msg;
   setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>el.remove(), 320); }, 2600);
@@ -3911,7 +3934,12 @@ $('#curChk').onchange = e=>{
   drawOverlay();
 };
 
-window.addEventListener('beforeunload', ()=>{ netSend({ t:'leave', id:me.id }); });
+function flushOnExit(){
+  try{ netSend({ t:'leave', id:me.id }); }catch(err){}
+  try{ flushSave(); }catch(err){}      // saveSoon 有 450ms 去抖，不主动 flush 会丢掉最后几笔
+}
+window.addEventListener('beforeunload', flushOnExit);
+window.addEventListener('pagehide', flushOnExit);   // 移动端/后台回收不一定触发 beforeunload
 
 
 
