@@ -1,0 +1,120 @@
+<!DOCTYPE html><meta charset="utf-8"><title>op 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:900px;height:260px;border:1px solid #c8ccd3;background:#fff;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 3：op 白名单 + JSON 序列化往返一致性 */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80); } return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, T = W.__T;
+
+  function snap(){ return JSON.stringify(T.doc); }
+  function reset(){ T.doOps([{ k:'clear' }]); }
+  function applyAll(ops){ ops.forEach(function(o){ T.applyOp(o, true); }); }
+
+  /* 同一组 op：直接应用 vs 先 JSON 往返再应用，结果必须逐字节一致 */
+  function roundTrip(name, ops){
+    reset(); applyAll(ops);
+    var a = snap();
+    reset(); applyAll(JSON.parse(JSON.stringify(ops)));
+    var b = snap();
+    ck(a === b, name + ' · 序列化往返后结果一致');
+    ck(a !== '{}' && !/^\{"notes":\{\},"strokes":\{\},"edges":\{\},"images":\{\},"frames":\{\},"shapes":\{\},"texts":\{\},"comments":\{\}\}$/.test(a),
+       name + ' · op 确实产生了内容');
+  }
+
+  /* 准备一批基础元素，供 update 类用例使用 */
+  var base = [
+    { k:'note.add', n:{ id:'n1', x:10, y:20, w:172, h:132, color:'#FFE7A3', text:'原文', z:3, ts:1000 } },
+    { k:'shape.add', o:{ id:'s1', x:0, y:0, w:100, h:80, kind:'diamond', fill:'#CFE2F6', stroke:'#1B1D22', sw:2, op:0.8, z:4, ts:1 } },
+    { k:'text.add', o:{ id:'t1', x:1, y:2, w:200, text:'文字', size:20, color:'#2F5FB3', align:'center', z:5, ts:1 } },
+    { k:'comment.add', o:{ id:'c1', x:5, y:6, z:6, ts:1 } },
+    { k:'stroke.add', s:{ id:'st1', pts:[[0,0],[10,10]], color:'#1B1D22', size:4, ts:1 } },
+    { k:'frame.add', f:{ id:'f1', x:0, y:0, w:1920, h:1080, ratio:'16:9', label:'图框 1', z:8, ts:1 } }
+  ];
+
+  roundTrip('note 新增/更新', base.slice(0,1).concat([
+    { k:'note.update', id:'n1', patch:{ x:40, text:'改过' }, ts:1100 }
+  ]));
+  roundTrip('shape 新增/更新', base.slice(1,2).concat([
+    { k:'shape.update', id:'s1', patch:{ fill:'#F8C9D2', sw:4 }, ts:2 }
+  ]));
+  roundTrip('text 新增/更新', base.slice(2,3).concat([
+    { k:'text.update', id:'t1', patch:{ size:28, align:'right' } }
+  ]));
+  roundTrip('comment 新增/更新', base.slice(3,4).concat([
+    { k:'comment.update', id:'c1', patch:{ msgs:[{ id:'m1', who:'林岚', text:'收到', ts:2 }], resolved:true } }
+  ]));
+  roundTrip('stroke 新增/更新', base.slice(4,5).concat([
+    { k:'stroke.update', id:'st1', pts:[[5,5],[15,15]], color:'#C98A16', size:9, ts:2 }
+  ]));
+  roundTrip('frame 新增/更新', base.slice(5,6).concat([
+    { k:'frame.update', id:'f1', patch:{ label:'封面', scale:'1:100' } }
+  ]));
+  roundTrip('edge 新增/更新', [
+    { k:'note.add', n:{ id:'en1', x:0, y:0, w:172, h:132, text:'A', z:1, ts:1 } },
+    { k:'note.add', n:{ id:'en2', x:200, y:0, w:172, h:132, text:'B', z:2, ts:1 } },
+    { k:'edge.add', e:{ id:'e1', from:'n:en1', to:'n:en2', z:3 } },
+    { k:'edge.update', id:'e1', patch:{ stroke:'#B23A48', dash:true, arrowS:true } }
+  ]);
+
+  /* 白名单：非法 op 一律不得改动 doc */
+  function badCase(name, setup, badOp){
+    reset(); applyAll(setup);
+    var before = snap();
+    T.applyOp(badOp, true);
+    ck(snap() === before, name);
+  }
+  badCase('未知 op 被忽略', base, { k:'totally.unknown', id:'x' });
+  badCase('危险 id 的 add 被丢弃', [], { k:'shape.add', o:{ id:'__proto__', x:0, y:0, w:10, h:10, kind:'rect' } });
+  badCase('非法 kind 被丢弃', [], { k:'shape.add', o:{ id:'s9', x:0, y:0, w:10, h:10, kind:'hexagon' } });
+  badCase('注入式 fill 被丢弃', base, { k:'shape.update', id:'s1', patch:{ fill:'#fff" onload="window.__X2=1' } });
+  badCase('非法色值 stroke 被丢弃', base, { k:'shape.update', id:'s1', patch:{ stroke:'red" onmouseover="window.__X2=1' } });
+  badCase('Infinity 坐标的 pts 被丢弃', base, { k:'stroke.update', id:'st1', pts:[[Infinity,0],[0,0]] });
+  badCase('超长 pts 被丢弃', base, { k:'stroke.update', id:'st1', pts:new Array(30000).fill([1,2]) });
+  badCase('非数值 x 的 patch 被丢弃', base, { k:'note.update', id:'n1', patch:{ x:'abc' } });
+  badCase('非布尔 hidden 被丢弃', base, { k:'text.update', id:'t1', patch:{ hidden:'yes' } });
+  badCase('msgs 非数组被丢弃', base, { k:'comment.update', id:'c1', patch:{ msgs:'nope' } });
+  badCase('__proto__ 注入被丢弃', base, { k:'shape.update', id:'s1', patch: JSON.parse('{"__proto__":{"pollutedOp":1}}') });
+  ck(({}).pollutedOp === undefined && W.pollutedOp === undefined, '原型链未被污染');
+  badCase('stroke.update 用 patch 传参被忽略', base, { k:'stroke.update', id:'st1', patch:{ hidden:true } });
+
+  /* 合法值照常生效，未知字段被剔除 */
+  reset(); applyAll(base);
+  T.applyOp({ k:'shape.update', id:'s1', patch:{ fill:'#D7ECD9', bogusField:123 }, ts:5 }, true);
+  ck(T.doc.shapes.s1.fill === '#D7ECD9', '合法字段正常应用');
+  ck(T.doc.shapes.s1.bogusField === undefined, '未知字段被剔除');
+
+  /* stroke.update 的顶层字段约定 */
+  T.applyOp({ k:'stroke.update', id:'st1', pts:[[1,1],[2,2]], color:'#2E7D6B', size:7, hidden:true }, true);
+  var st = T.doc.strokes.st1;
+  ck(st.pts.length === 2 && st.color === '#2E7D6B' && st.size === 7 && st.hidden === true,
+     'stroke.update 的 pts/color/size/hidden 全部按顶层字段生效');
+
+  /* 数值夹取 */
+  T.applyOp({ k:'stroke.update', id:'st1', size:1e9 }, true);
+  ck(T.doc.strokes.st1.size === 40, 'size 被夹到上限 40');
+  T.applyOp({ k:'text.update', id:'t1', patch:{ size:1e6 } }, true);
+  ck(T.doc.texts.t1.size === 200, '文字字号被夹到上限 200');
+
+  /* clear */
+  T.applyOp({ k:'clear' }, true);
+  ck(snap() === '{"notes":{},"strokes":{},"edges":{},"images":{},"frames":{},"shapes":{},"texts":{},"comments":{}}', 'clear 清空全部类型');
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+  P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+  P('PROBE_END');
+})();
+</script>

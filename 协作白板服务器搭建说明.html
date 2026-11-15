@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>协作白板服务器搭建说明</title>
+<style>
+@page { size: A4; margin: 17mm 14mm 15mm; }
+* { box-sizing: border-box; }
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 9.6pt; line-height: 1.75; color: #1b1d22;
+}
+h1 { page-break-before: always; page-break-after: avoid;
+     font-size: 15pt; font-weight: 600; color: #1a3a5c;
+     border-bottom: 1px solid #d8dee7; padding-bottom: 4pt; margin: 0 0 8pt; }
+h2 { page-break-after: avoid; font-size: 12.5pt; font-weight: 600;
+     color: #1a3a5c; margin: 14pt 0 6pt; }
+h3 { page-break-after: avoid; font-size: 10.8pt; font-weight: 600; margin: 11pt 0 5pt; }
+p  { margin: 0 0 6pt; }
+ul, ol { margin: 0 0 7pt; padding-left: 15pt; }
+li { margin-bottom: 3pt; }
+strong { font-weight: 600; }
+code { font-family: Consolas, "Courier New", monospace; font-size: 8.6pt;
+       background: #f2f4f7; padding: 0.5pt 3pt; border-radius: 2pt; }
+pre { background: #f6f7f9; border: 1px solid #e3e6ea; border-radius: 4pt;
+      padding: 7pt 9pt; margin: 0 0 9pt; page-break-inside: avoid;
+      white-space: pre-wrap; word-break: break-all; }
+pre code { background: none; padding: 0; font-size: 8.4pt; }
+blockquote { page-break-inside: avoid; margin: 0 0 9pt; padding: 6pt 10pt;
+             background: #f4f7fa; border-left: 2.5pt solid #7f9ec2; color: #33465f; }
+blockquote p { margin: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 8.4pt;
+        page-break-inside: auto; margin: 0 0 10pt; }
+thead { display: table-header-group; }
+th { background: #eef2f7; font-weight: 600; text-align: left; }
+th, td { border: 0.5pt solid #cbd3dd; padding: 3.5pt 5pt; vertical-align: top; }
+tr { page-break-inside: avoid; }
+hr { border: 0; border-top: 0.5pt solid #dde2e8; margin: 10pt 0; }
+a { color: #1a5fb4; text-decoration: none; }
+
+.cover { page-break-after: always; page-break-inside: avoid;
+         border: 1.2pt solid #1a3a5c; padding: 34mm 16mm 30mm; text-align: center; }
+.cover h1 { page-break-before: avoid; page-break-after: avoid;
+            border: 0; font-size: 24pt; font-weight: 600; color: #1a3a5c;
+            margin: 0 0 10pt; padding: 0; }
+.cover .sub { font-size: 11pt; color: #4a5568; line-height: 1.9; }
+.cover .tag { margin-top: 16mm; font-size: 9pt; color: #8a90a0; }
+</style>
+</head>
+<body>
+<div class="cover">
+  <h1>协作白板服务器搭建说明</h1>
+  <div class="sub">零基础可照做 · 局域网多人实时协作 · 内容自动保存在本机</div>
+  <div class="tag">配套文件：whiteboard.html · relay-server.js · 启动中继.bat</div>
+</div>
+<blockquote>
+<p>面向零基础用户。照着做即可，不需要懂编程。<br />
+做完以后：一台电脑开着，同一 Wi-Fi 下的同事或手机打开一个网址，就能一起在一块白板上画便签、连线、贴图；内容自动存在这台电脑上，关机重启后还在。</p>
+</blockquote>
+<hr />
+<h2>零、你需要什么</h2>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一台常开的电脑</td>
+<td>Windows / macOS / Linux 都行，做"服务器"用</td>
+</tr>
+<tr>
+<td>Node.js</td>
+<td>免费，运行时环境，装一次就行</td>
+</tr>
+<tr>
+<td>三个文件</td>
+<td><code>whiteboard.html</code>、<code>relay-server.js</code>、<code>启动中继.bat</code></td>
+</tr>
+</tbody>
+</table>
+<p>把这三个文件<strong>放在同一个文件夹</strong>里，例如 <code>D:\白板\</code>。这是整个过程中唯一需要注意的"文件管理"要求——放一起，别分开。</p>
+<hr />
+<h2>一、安装 Node.js（只需做一次）</h2>
+<ol>
+<li>打开官网 <a href="https://nodejs.org">https://nodejs.org</a>，点左边那个绿色的 <strong>LTS</strong>（长期支持版）下载。</li>
+<li>双击安装包，一路点"下一步"，全部用默认选项即可。</li>
+<li>装完后<strong>重启一次电脑</strong>（重要，否则命令行可能找不到 node）。</li>
+<li>验证是否装好：<br />
+   - 按 <code>Win + R</code>，输入 <code>cmd</code>，回车，弹出黑色窗口；<br />
+   - 输入 <code>node -v</code> 后回车；<br />
+   - 显示类似 <code>v22.22.2</code> 就是装好了。若提示"不是内部或外部命令"，说明没装好或没重启，回到第 1 步重来。</li>
+</ol>
+<hr />
+<h2>二、启动服务器</h2>
+<ol>
+<li>双击 <code>启动中继.bat</code>。</li>
+<li>会弹出一个黑色窗口，显示类似下面的内容：</li>
+</ol>
+<p>```<br />
+   白板服务器已启动，别关这个黑窗口。</p>
+<pre><code> 自己用:   http://localhost:8787
+ 同一 Wi-Fi 的同事/手机用: http://192.168.31.8:8787
+
+ 房间内容保存在: D:\白板\rooms
+</code></pre>
+<p>```</p>
+<ol start="3">
+<li><strong>这个黑窗口不能关</strong>。关掉就等于服务器关掉，别人就进不来了。最小化可以。</li>
+<li>如果 Windows 弹出"是否允许此应用访问网络"的防火墙提示，点<strong>允许访问</strong>（至少需要勾选"专用网络"）。不让通行的话，别人连不上。</li>
+<li>记下窗口里那行 <code>http://192.168.31.8:8787</code>——这就是给别人用的网址（你机器上的数字会不一样，以你看到的为准）。</li>
+</ol>
+<blockquote>
+<p>若窗口一闪就没了，或提示端口被占用：见文末"常见问题"第 2、3 条。</p>
+</blockquote>
+<hr />
+<h2>三、自己先打开看看</h2>
+<p>浏览器地址栏输入 <code>http://localhost:8787</code>（或者黑窗口里那行"自己用"的地址），回车。</p>
+<p>你会看到白板界面。此时：</p>
+<ul>
+<li>右上角"协作"按钮旁的小圆点是<strong>蓝色</strong>的，说明已经自动连上了服务器（灰色=没连上）；</li>
+<li>左上角会显示当前白板名称，默认是<strong>公共白板</strong>；</li>
+<li>第一次进来是空的，双击画布就能加便签。</li>
+</ul>
+<p>试着加两个便签、画两笔，确认能正常操作。</p>
+<hr />
+<h2>四、让别人加入</h2>
+<p>把第二步记下的那个网址发给同事，例如 <code>http://192.168.31.8:8787</code>。他们：</p>
+<ul>
+<li>电脑：浏览器打开这个网址；</li>
+<li>手机：连<strong>同一个 Wi-Fi</strong>，手机浏览器打开这个网址（手机也能画）。</li>
+</ul>
+<p>所有人默认都落在"公共白板"这一块，改动是<strong>实时</strong>的：你拖动便签，对方屏幕上一秒内就会跟着动。</p>
+<hr />
+<h2>五、开多块独立白板</h2>
+<p>默认情况下，所有不带房间号的访问者都在同一块"公共白板"上。想让不同项目各自独立，就在网址后面加 <code>#room=房间名</code>：</p>
+<pre><code>http://192.168.31.8:8787/#room=产品评审
+http://192.168.31.8:8787/#room=周会
+</code></pre>
+<p>房间名可以用中文，也可以写英文。把这个带 <code>#room=</code> 的完整网址发给对应的人，他们就会进到各自的房间，<strong>互相看不到、互不干扰</strong>。</p>
+<blockquote>
+<p>房间名就是房间的身份标识，别泄露给不相干的人——这个白板没有密码。</p>
+</blockquote>
+<hr />
+<h2>六、日常怎么用</h2>
+<table>
+<thead>
+<tr>
+<th>想做的事</th>
+<th>怎么做</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>保存</td>
+<td><strong>不用手动保存</strong>。每次改动约 0.5 秒内自动存；按 <code>Ctrl + S</code> 可立刻存一次</td>
+</tr>
+<tr>
+<td>白板改名 / 新建 / 删除 / 覆盖</td>
+<td>点顶栏的"白板"按钮（或 <code>Ctrl + B</code>）打开存档面板</td>
+</tr>
+<tr>
+<td>导出图片或 PDF</td>
+<td><code>Ctrl + E</code>，选"导出图片 PNG"或"导出 PDF 文档"</td>
+</tr>
+<tr>
+<td>插入图片</td>
+<td>按 <code>I</code> 或点工具栏图片图标，也可直接把图片拖进画布</td>
+</tr>
+<tr>
+<td>换端口</td>
+<td>右键 <code>启动中继.bat</code> → 编辑，把里面的 <code>8787</code> 改成别的数字（如 <code>9000</code>），保存后重新双击</td>
+</tr>
+</tbody>
+</table>
+<p>存档面板里的三种操作要分清：</p>
+<ul>
+<li><strong>打开</strong>：切换到那块白板（当前内容会先自动保存）；</li>
+<li><strong>覆盖</strong>：用当前画面替换那块白板的内容（会二次确认，替换后不可撤销）；</li>
+<li><strong>删除</strong>：删掉那块白板（会二次确认；删的是当前这块时，会自动帮你切到另一块）。</li>
+</ul>
+<hr />
+<h2>七、内容存在哪里</h2>
+<p>内容<strong>双份保存</strong>，各有分工：</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>作用</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>服务器目录 <code>rooms\房间名.json</code></td>
+<td>房间的最新完整快照</td>
+<td>换设备、换浏览器都能拿到；服务器重启后自动加载</td>
+</tr>
+<tr>
+<td>每台设备浏览器本地</td>
+<td>本地存档列表（可离线编辑）</td>
+<td>清浏览器缓存会丢；适合单机整理</td>
+</tr>
+</tbody>
+</table>
+<p>所以：</p>
+<ul>
+<li><strong>备份</strong>：把服务器上的 <code>rooms</code> 文件夹整个拷走即可，里面是每个房间一个 <code>.json</code> 文件。</li>
+<li><strong>迁移</strong>：把 <code>rooms</code> 文件夹拷到新机器的同一位置，双击启动，内容就回来了。</li>
+<li><strong>想清空重来</strong>：关掉服务器，删掉 <code>rooms</code> 文件夹里对应的 <code>.json</code>，再启动。</li>
+</ul>
+<blockquote>
+<p>注意：快照是"每个房间最后一份完整内容"，不是版本历史——没有"回到 10 分钟前"这种功能，重要节点请用导出 PDF 留档。</p>
+</blockquote>
+<hr />
+<h2>八、常见问题排查</h2>
+<p><strong>1. 双击 bat 后黑窗口一闪而过，或提示"node 不是内部或外部命令"</strong><br />
+Node.js 没装好，或装完没重启。回到第一步重装并重启电脑。</p>
+<p><strong>2. 黑窗口里出现 <code>EADDRINUSE</code> 或"端口被占用"</strong><br />
+8787 端口已被别的程序占用。编辑 <code>启动中继.bat</code> 把 <code>8787</code> 改成 <code>9000</code>（或别的数字）再启动，网址里的端口也要跟着改。</p>
+<p><strong>3. 别人打不开网址</strong><br />
+按顺序排查：<br />
+- 双方是否在<strong>同一个 Wi-Fi</strong>（公司网络常常把设备互相隔离，这种情况改用手机热点）；<br />
+- 服务器那台电脑的防火墙是否放行了 Node.js（第二步第 4 点）；<br />
+- 网址里的 IP 是不是黑窗口里显示的那个（本机 IP 可能变化，以窗口显示为准）；<br />
+- 服务器黑窗口是不是被关掉了。</p>
+<p><strong>4. 页面能打开，但小圆点是灰的，提示"中继连接失败"</strong><br />
+说明网址能通、但实时通道没连上。检查：<br />
+- 若是手动填地址，必须是 <code>ws://</code> 开头（不是 <code>http://</code>），格式 <code>ws://192.168.31.8:8787</code>；<br />
+- 从服务器网址打开时会自动填好，一般不需要手填；<br />
+- 若页面是 <code>https://</code> 开头的（例如放到公网），地址必须改成 <code>wss://</code> 开头，否则浏览器会拦截。</p>
+<p><strong>5. 画了内容，第二天打开没了</strong><br />
+- 服务器当时是否开着（只有开着才会收到并保存同步）；<br />
+- 看服务器目录 <code>rooms</code> 里有没有对应的 <code>.json</code> 文件，有的话内容就在；<br />
+- 存档面板里换一下白板看看，可能只是在另一块白板上。</p>
+<p><strong>6. 手机能打开但操作很卡</strong><br />
+图片太多太大时会卡。尽量用压缩过的图片，单张控制在几百 KB。</p>
+<hr />
+<h2>九、进阶：让外网的人也能用（可选）</h2>
+<p>上面全部是<strong>局域网</strong>方案，只在同一个 Wi-Fi 下有效。想让外地同事访问，需要一台有公网 IP 的云服务器，并配置 HTTPS：</p>
+<ol>
+<li>买一台云服务器（各家云厂商的最低配就够），装好 Node.js；</li>
+<li>把 <code>whiteboard.html</code>、<code>relay-server.js</code> 传到服务器同一目录，用 <code>node relay-server.js --port 8787</code> 启动；</li>
+<li>装 Nginx，把 443 端口反代到本机的 8787，并用 Let's Encrypt 申请免费证书；</li>
+<li>云服务器的安全组/防火墙放行 443 端口；</li>
+<li>用 <code>https://你的域名</code> 打开白板即可——程序会自动识别 https 页面并使用 <code>wss://</code> 连接。</li>
+</ol>
+<p>关键区别只有一句：<strong>页面是 https 时，实时通道必须是 wss，不能是 ws</strong>，否则浏览器按"混合内容"直接拦截。</p>
+<hr />
+<h2>十、不用 bat，直接用命令行（可选）</h2>
+<p>在三个文件所在的文件夹里打开命令行，执行：</p>
+<pre><code>node relay-server.js                        # 默认 8787 端口
+node relay-server.js --port 9000            # 指定端口
+node relay-server.js --dir D:\白板\rooms    # 指定快照目录
+node relay-server.js --no-save              # 只做实时转发，不落盘
+</code></pre>
+<p>浏览器打开 <code>http://localhost:8787/health</code> 可以看到当前的房间和在线人数，用来确认服务器是否正常工作。</p>
+<hr />
+<h2>需要记住的三句话</h2>
+<ol>
+<li><strong>黑窗口别关</strong>，关了别人就进不来。</li>
+<li><strong>内容在 <code>rooms</code> 文件夹</strong>，备份就拷这个文件夹。</li>
+<li><strong>网址后面加 <code>#room=名字</code></strong> 就能开出互不相干的独立白板。</li>
+</ol>
+</body>
+</html>

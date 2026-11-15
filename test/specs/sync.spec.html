@@ -1,0 +1,86 @@
+<!DOCTYPE html><meta charset="utf-8"><title>sync 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1100px;height:280px;border:1px solid #c8ccd3;background:#fff;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<iframe id="fb" src="../.tmp/app.html?v=2"></iframe>
+<script>
+/* 主线 2：双窗口实时同步 + 畸形消息防线 */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80); } return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa'), fb = document.getElementById('fb');
+  if(!await until(function(){ return fa.contentWindow.__T && fb.contentWindow.__T; }, 12000)) throw new Error('探针未就绪');
+  var A = fa.contentWindow, B = fb.contentWindow, TA = A.__T, TB = B.__T;
+
+  await wait(1000);
+  ck(TA.ROOM === TB.ROOM, '两窗口进入同一房间（' + TA.ROOM + '）');
+  var peerOk = await until(function(){
+    return (parseInt((A.document.getElementById('peerCount')||{}).textContent || '0', 10) >= 2);
+  }, 6000);
+  ck(peerOk, '成员列表互相收录（在线 ≥ 2）');
+
+  /* 清场：A 清空，B 跟随 */
+  TA.doOps([{ k:'clear' }]);
+  await until(function(){ return Object.keys(TB.doc.notes).length === 0; }, 5000);
+
+  /* 1. A 建图形 → B 收到 */
+  var sh = TA.addShape(300, 200, 'ellipse');
+  ck(await until(function(){ return !!TB.doc.shapes[sh.id]; }, 6000), 'A 建图形 → B 收到');
+  ck(TB.doc.shapes[sh.id] && TB.doc.shapes[sh.id].kind === 'ellipse', 'B 侧图形类型正确');
+
+  /* 2. B 建文本 → A 收到 */
+  var tx = TB.addText(500, 300, { text:'来自 B' });
+  ck(await until(function(){ return !!TA.doc.texts[tx.id]; }, 6000), 'B 建文本 → A 收到');
+  ck(TA.doc.texts[tx.id] && TA.doc.texts[tx.id].text === '来自 B', 'A 侧文本内容正确');
+
+  /* 3. A 改样式 → B 收到 */
+  TA.doOps([{ k:'shape.update', id:sh.id, patch:{ fill:'#F8C9D2' } }]);
+  ck(await until(function(){ return TB.doc.shapes[sh.id] && TB.doc.shapes[sh.id].fill === '#F8C9D2'; }, 6000), '图形样式变化同步到 B');
+
+  /* 4. A 删除 → B 消失 */
+  TA.doOps([{ k:'shape.remove', id:sh.id }]);
+  ck(await until(function(){ return !TB.doc.shapes[sh.id]; }, 6000), 'A 删除 → B 同步移除');
+
+  /* 5. 恶意 op 在 B 侧同样被清洗 */
+  TA.doOps([{ k:'shape.add', o:{ id:'evilSync', x:0, y:0, w:40, h:40, kind:'rect', fill:'#fff" onload="window.__XSS=1' } }]);
+  await wait(600);
+  ck(!TB.doc.shapes.evilSync || String(TB.doc.shapes.evilSync.fill).indexOf('onload') < 0, '恶意 fill 同步到 B 后被清洗');
+  ck(B.__XSS === undefined && A.__XSS === undefined, '两窗口都未触发注入脚本');
+
+  /* 6. 畸形广播不致命：未知 op / 空对象 / 字符串 */
+  TA.doOps([{ k:'totally.unknown', id:'x' }]);
+  TA.applyOp(null, true);
+  TA.applyOp('not-an-op', true);
+  await wait(400);
+  var tx2 = TB.addText(600, 400, { text:'仍然可用' });
+  ck(await until(function(){ return !!TA.doc.texts[tx2.id]; }, 6000), '收到畸形消息后同步仍正常（B → A 依旧可达）');
+
+  /* 7. 远端昵称/颜色注入：在线列表与 toast 不得执行脚本 */
+  TB.handleMsg({ t:'cur', from:'evilpeer', name:'<img src=x onerror="window.__XSS=2">', color:'#fff;background:url(javascript:1)', x:10, y:10 });
+  await wait(300);
+  var plist = B.document.getElementById('peerList');
+  ck(B.__XSS === undefined, '恶意昵称未触发脚本（__XSS=' + B.__XSS + '）');
+  ck(plist && plist.querySelectorAll('img').length === 0, '在线列表未插入 img 元素（昵称已转义）');
+  var av = plist && plist.querySelector('.av');
+  ck(!av || /^--c:#[0-9a-fA-F]{3,8}$/.test(av.getAttribute('style') || ''), '头像颜色被限制为合法色值（' + (av ? av.getAttribute('style') : '-') + '）');
+
+  /* 8. 关闭前落盘：新增内容后立刻触发 pagehide，不应丢 */
+  var last = TA.addNote(700, 500, { text:'未落盘就关窗' });
+  A.dispatchEvent(new A.Event('pagehide'));
+  var raw = A.localStorage.getItem('wb.doc.' + TA.ROOM) || '';
+  ck(raw.indexOf(last.id) >= 0, 'pagehide 时立即落盘（最后 450ms 的改动不丢）');
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+  P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+  P('PROBE_END');
+})();
+</script>

@@ -1,0 +1,9 @@
+{
+  "name": "collab-whiteboard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "单文件协作白板 + 零依赖 WebSocket 中继（页面与中继同端口）",
+  "scripts": {
+    "start": "node relay-server.js"
+  }
+}

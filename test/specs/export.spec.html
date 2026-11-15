@@ -1,0 +1,97 @@
+<!DOCTYPE html><meta charset="utf-8"><title>export 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:420px;border:1px solid #c8ccd3;background:#fff;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 1：建图框 → 按框分页导出 → 尺寸与像素断言 */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80); } return false; }
+
+/* 统计一片区域里「蓝色标签条」像素：b 明显高于 r */
+function countBlue(ctx, x, y, w, h){
+  var d = ctx.getImageData(x, y, w, h).data, n = 0;
+  for(var i=0;i<d.length;i+=4){
+    if(d[i+2] > 140 && d[i+2] - d[i] > 40) n++;
+  }
+  return n;
+}
+function countInk(ctx, x, y, w, h){
+  var d = ctx.getImageData(x, y, w, h).data, n = 0;
+  for(var i=0;i<d.length;i+=4){
+    if(d[i] < 245 || d[i+1] < 245 || d[i+2] < 245) n++;
+  }
+  return n;
+}
+function px(ctx, x, y){ var d = ctx.getImageData(x, y, 1, 1).data; return [d[0],d[1],d[2]]; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, D = W.document, T = W.__T;
+
+  T.doOps([{ k:'clear' }]);
+  await wait(150);
+
+  /* 两个 16:9 图框，框内放便签与图形；内容靠中间，顶部留给标签条 */
+  var f1 = T.addFrame(0, 0, '16:9');
+  await wait(150);
+  var n1 = T.addNote(f1.x + 300, f1.y + 520, { text:'框内便签' });
+  var s1 = T.addShape(f1.x + 1100, f1.y + 520, 'ellipse');
+  await wait(250);
+  ck(f1.w === 1920 && f1.h === 1080, '默认 16:9 图框为 1920×1080（' + f1.w + '×' + f1.h + '）');
+
+  /* 单框导出（纯净模式） */
+  var r1 = T.renderExport({ rect:{ x:f1.x, y:f1.y, w:f1.w, h:f1.h }, clean:true });
+  ck(!!r1 && r1.W === 1920 && r1.H === 1080, '单框导出尺寸 = 1920×1080（实际 ' + (r1 ? r1.W + '×' + r1.H : '-') + '）');
+  if(r1){
+    var g1 = r1.canvas.getContext('2d');
+    ck(countBlue(g1, 0, 0, r1.W, 30) === 0, '纯净模式不含蓝色图框标签条');
+    var corner = px(g1, 4, 4);
+    ck(corner[0] === 255 && corner[1] === 255 && corner[2] === 255,
+       '纯净模式页面底色为纯白（角落 ' + corner + '）');
+    ck(countInk(g1, 0, 0, r1.W, r1.H) > 3000, '框内内容确实被画出来了（非白像素 ' + countInk(g1,0,0,r1.W,r1.H) + '）');
+    var mid = px(g1, Math.round(r1.W/2), Math.round(r1.H/2));
+    ck(mid[0] === 255 && mid[1] === 255 && mid[2] === 255, '框外/空白处保持白底');
+  }
+
+  /* 整板导出：应包含图框标签（旧行为不变） */
+  var rAll = T.renderExport();
+  ck(!!rAll, '整板导出可用');
+  if(rAll){
+    var gAll = rAll.canvas.getContext('2d');
+    ck(countBlue(gAll, 0, 0, rAll.W, Math.min(60, rAll.H)) > 200, '整板导出仍带图框标签条');
+  }
+
+  /* 第二个框：验证多页顺序与尺寸一致性 */
+  var f2 = T.addFrame(f1.x + f1.w + 200, 0, '16:9');
+  await wait(200);
+  T.addNote(f2.x + 400, f2.y + 500, { text:'第二页' });
+  await wait(250);
+  var r2 = T.renderExport({ rect:{ x:f2.x, y:f2.y, w:f2.w, h:f2.h }, clean:true });
+  ck(!!r2 && r2.W === 1920 && r2.H === 1080, '第二个图框独立导出 1920×1080');
+  ck(!!r2 && countInk(r2.canvas.getContext('2d'), 0, 0, r2.W, r2.H) > 1000, '第二页也有内容');
+
+  /* 2× 倍率 */
+  D.querySelector('#tools [data-tool="frame"]').click();
+  await wait(200);
+  var chip = D.querySelector('#fcSize [data-m="2"]');
+  ck(!!chip, '图框尺寸档位存在');
+  if(chip){ chip.click(); await wait(150); }
+  var f3 = T.addFrame(0, 2000, '16:9');
+  await wait(200);
+  var r3 = T.renderExport({ rect:{ x:f3.x, y:f3.y, w:f3.w, h:f3.h }, clean:true });
+  ck(!!r3 && r3.W === 3840 && r3.H === 2160, '2× 图框导出 3840×2160（实际 ' + (r3 ? r3.W + '×' + r3.H : '-') + '）');
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+  P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+  P('PROBE_END');
+})();
+</script>
