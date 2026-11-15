@@ -1,0 +1,83 @@
+<!DOCTYPE html><meta charset="utf-8"><title>ui 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:400px;border:1px solid #c8ccd3;background:#fff;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 6：可访问性（a11y）与界面语言（i18n） */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80); } return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, D = W.document, T = W.__T;
+
+  /* ---------- a11y ---------- */
+  var tools = [].slice.call(D.querySelectorAll('#tools .tool[data-tool]'));
+  ck(tools.length >= 11, '工具栏按钮数量正常（' + tools.length + '）');
+  ck(tools.every(function(b){ return !!(b.getAttribute('aria-label') || '').trim(); }), '每个工具按钮都有 aria-label');
+  ck(tools.every(function(b){ return b.hasAttribute('aria-pressed'); }), '工具按钮带 aria-pressed');
+  var onBtn = tools.filter(function(b){ return b.classList.contains('on'); })[0];
+  ck(!!onBtn && onBtn.getAttribute('aria-pressed') === 'true', '当前工具 aria-pressed=true（' + (onBtn && onBtn.dataset.tool) + '）');
+
+  D.querySelector('#tools [data-tool="pen"]').click();
+  await wait(120);
+  ck(D.querySelector('#tools [data-tool="pen"]').getAttribute('aria-pressed') === 'true', '切换工具后 aria-pressed 跟随');
+  ck(D.querySelector('#tools [data-tool="select"]').getAttribute('aria-pressed') === 'false', '旧工具的 aria-pressed 复位');
+
+  ck(D.getElementById('framePanel').getAttribute('role') === 'dialog', '图框面板 role=dialog');
+  ck(D.getElementById('inspector').getAttribute('role') === 'dialog', '样式面板 role=dialog');
+  ck(D.getElementById('boardsPanel').getAttribute('role') === 'dialog', '存档面板 role=dialog');
+  ck(D.getElementById('menu').getAttribute('role') === 'menu', '菜单 role=menu');
+  ck(D.getElementById('presence').getAttribute('aria-live') === 'polite', '在线成员区 aria-live');
+  ck(D.getElementById('peerCount').getAttribute('aria-live') === 'polite', '在线人数 aria-live');
+
+  var css = '';
+  for(var si=0; si<D.styleSheets.length; si++){
+    try{ var rules = D.styleSheets[si].cssRules; for(var ri=0; ri<rules.length; ri++) css += rules[ri].cssText + '\n'; }catch(e){}
+  }
+  ck(css.indexOf('focus-visible') >= 0, '存在 :focus-visible 焦点样式');
+  ck(css.indexOf('prefers-reduced-motion') >= 0, '存在 prefers-reduced-motion 降级规则');
+
+  /* ---------- i18n ---------- */
+  function labelOf(tool){ return D.querySelector('#tools [data-tool="' + tool + '"] .kbd').firstChild.nodeValue.trim(); }
+  ck(labelOf('select') === '选择', '默认中文：选择工具显示「选择」（实际 ' + labelOf('select') + '）');
+  ck(D.documentElement.lang === 'zh-CN', 'html lang=zh-CN');
+
+  D.querySelector('[data-lang="en"]').click();
+  await wait(150);
+  ck(labelOf('select') === 'Select' && labelOf('pen') === 'Pen', '切到英文后工具文案更新（' + labelOf('select') + ' / ' + labelOf('pen') + '）');
+  ck(D.documentElement.lang === 'en', 'html lang 随语言切换为 en');
+  ck(D.querySelector('[data-lang="en"]').classList.contains('on'), '语言按钮选中态正确');
+  ck((D.querySelector('#tools [data-tool="pen"]').getAttribute('aria-label') || '') === 'Pen', 'aria-label 也跟着翻译');
+  ck(D.getElementById('bpCreate').textContent.trim() === 'Create', '存档面板按钮文案跟随语言（' + D.getElementById('bpCreate').textContent.trim() + '）');
+
+  /* 导出菜单也要翻译 */
+  D.getElementById('exportBtn').click();
+  await wait(150);
+  var menuText = D.getElementById('menu').textContent || '';
+  ck(menuText.indexOf('Export PNG') >= 0, '导出菜单已英文化');
+  D.dispatchEvent(new W.Event('pointerdown', { bubbles:true }));
+  await wait(80);
+
+  /* 语言选择要持久化 */
+  ck(W.localStorage.getItem('wb.lang') === 'en', '语言选择已写入 localStorage');
+
+  D.querySelector('[data-lang="zh"]').click();
+  await wait(150);
+  ck(labelOf('select') === '选择', '可以切回中文');
+  ck(W.localStorage.getItem('wb.lang') === 'zh', '切回后持久化同步更新');
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+  P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+  P('PROBE_END');
+})();
+</script>

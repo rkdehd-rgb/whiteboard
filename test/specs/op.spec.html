@@ -110,6 +110,31 @@ async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ i
   T.applyOp({ k:'text.update', id:'t1', patch:{ size:1e6 } }, true);
   ck(T.doc.texts.t1.size === 200, '文字字号被夹到上限 200');
 
+  /* ---------- schema 版本与迁移 ---------- */
+  var legacy = {
+    doc: {
+      notes: { nA:{ id:'nA', x:0, y:0, w:172, h:132, text:'A', z:1, ts:1 },
+               nB:{ id:'nB', x:200, y:0, w:172, h:132, text:'B', z:2, ts:1 } },
+      edges: { e1:{ id:'e1', from:'nA', to:'nB' } },
+      frames: { f1:{ id:'f1', x:0, y:0, w:100, h:100 } }
+    },
+    view: { x:0, y:0, z:1 }
+  };
+  W.localStorage.setItem('wb.doc.' + T.ROOM, JSON.stringify(legacy));
+  ck(T.loadLocal() === true, '旧数据（无 v 字段）可以正常加载');
+  ck(T.doc.edges.e1 && T.doc.edges.e1.from === 'n:nA' && T.doc.edges.e1.to === 'n:nB', 'v1→v2：连线端点补全为「类型:id」');
+  ck(T.doc.frames.f1 && T.doc.frames.f1.ratio === '16:9' && T.doc.frames.f1.label === '图框 1', 'v1→v2：图框补齐 ratio/label');
+  ck(T.DOC_VERSION === 2, '当前数据版本为 v2');
+
+  T.persistNow();
+  var savedRaw = JSON.parse(W.localStorage.getItem('wb.doc.' + T.ROOM));
+  ck(savedRaw.v === T.DOC_VERSION, '落盘数据带版本号（v=' + savedRaw.v + '）');
+
+  W.localStorage.setItem('wb.doc.' + T.ROOM, JSON.stringify({
+    v: 99, doc:{ notes:{ nZ:{ id:'nZ', x:0, y:0, w:172, h:132, text:'future', z:1, ts:1 } } }, view:{ x:0, y:0, z:1 }
+  }));
+  ck(T.loadLocal() === true && !!T.doc.notes.nZ, '未来版本（v=99）按兼容方式加载，不崩');
+
   /* clear */
   T.applyOp({ k:'clear' }, true);
   ck(snap() === '{"notes":{},"strokes":{},"edges":{},"images":{},"frames":{},"shapes":{},"texts":{},"comments":{}}', 'clear 清空全部类型');

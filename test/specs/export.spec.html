@@ -90,6 +90,62 @@ function px(ctx, x, y){ var d = ctx.getImageData(x, y, 1, 1).data; return [d[0],
   await wait(200);
   var r3 = T.renderExport({ rect:{ x:f3.x, y:f3.y, w:f3.w, h:f3.h }, clean:true });
   ck(!!r3 && r3.W === 3840 && r3.H === 2160, '2× 图框导出 3840×2160（实际 ' + (r3 ? r3.W + '×' + r3.H : '-') + '）');
+
+  /* ---------- 导出清晰度档位 ---------- */
+  T.exportPerFrame = false;
+  T.exportHD = false;
+  var rStd = T.renderExport();
+  T.exportHD = true;
+  var rHd = T.renderExport();
+  ck(!!rStd && !!rHd && rHd.W > rStd.W * 1.5, '高清档输出明显更大（' + rStd.W + ' → ' + rHd.W + '）');
+  ck(!!rHd && Math.max(rHd.W, rHd.H) <= 5208, '高清档长边不超过 5200（实际 ' + Math.max(rHd.W, rHd.H) + '）');
+  T.exportHD = false;
+
+  /* ---------- ZIP 结构 ---------- */
+  var enc = new TextEncoder();
+  var d1 = enc.encode('hello zip'), d2 = enc.encode('第二个文件');
+  var zblob = T.makeZip([{ name:'a.txt', data:d1 }, { name:'b.txt', data:d2 }]);
+  var zbuf = new Uint8Array(await zblob.arrayBuffer());
+  function u32le(b, o){ return (b[o] | (b[o+1]<<8) | (b[o+2]<<16) | (b[o+3]<<24)) >>> 0; }
+  ck(zbuf[0]===0x50 && zbuf[1]===0x4b && zbuf[2]===3 && zbuf[3]===4, 'zip 本地文件头签名正确');
+  var eocd = -1;
+  for(var zi=zbuf.length-22; zi>=0; zi--){ if(zbuf[zi]===0x50 && zbuf[zi+1]===0x4b && zbuf[zi+2]===5 && zbuf[zi+3]===6){ eocd = zi; break; } }
+  ck(eocd >= 0, 'zip 能找到 EOCD 记录');
+  var nEnt = zbuf[eocd+10] | (zbuf[eocd+11]<<8);
+  ck(nEnt === 2, 'zip 记录 2 个条目（实际 ' + nEnt + '）');
+  var nameLen = zbuf[26] | (zbuf[27]<<8), extraLen = zbuf[28] | (zbuf[29]<<8);
+  var dataOff = 30 + nameLen + extraLen;
+  var stored = zbuf.slice(dataOff, dataOff + d1.length);
+  var same = true;
+  for(var si=0; si<d1.length; si++){ if(stored[si] !== d1[si]) same = false; }
+  ck(same, 'zip 第一个条目的数据与原文一致');
+  ck(u32le(zbuf, 14) === T.crc32(d1), 'zip 里的 CRC32 正确（' + u32le(zbuf, 14) + '）');
+  var nm = new TextDecoder().decode(zbuf.slice(30, 30 + nameLen));
+  ck(nm === 'a.txt', 'zip 条目名正确（' + nm + '）');
+
+  /* ---------- 分页导出改为打包 zip ---------- */
+  T.exportPerFrame = true;
+  var captured = [];
+  // 必须拦 iframe 自己的 URL / HTMLAnchorElement，顶层的不生效
+  var origCreate = W.URL.createObjectURL;
+  var origClick = W.HTMLAnchorElement.prototype.click;
+  W.URL.createObjectURL = function(bl){ captured.push(bl); return origCreate.call(W.URL, bl); };
+  W.HTMLAnchorElement.prototype.click = function(){};
+  try { await T.exportPNG(); } finally {
+    W.URL.createObjectURL = origCreate;
+    W.HTMLAnchorElement.prototype.click = origClick;
+  }
+  ck(captured.length === 1, '分页导出只触发一次下载（实际 ' + captured.length + ' 次）');
+  ck(captured.length === 1 && captured[0].type === 'application/zip', '下载内容是一个 zip');
+  if(captured.length === 1){
+    var z2 = new Uint8Array(await captured[0].arrayBuffer());
+    var e2 = -1;
+    for(var zj=z2.length-22; zj>=0; zj--){ if(z2[zj]===0x50 && z2[zj+1]===0x4b && z2[zj+2]===5 && z2[zj+3]===6){ e2 = zj; break; } }
+    var cnt = e2 >= 0 ? (z2[e2+10] | (z2[e2+11]<<8)) : -1;
+    ck(cnt >= 3, 'zip 内页数 = 图框数（' + cnt + ' 页）');
+  }
+  T.exportPerFrame = false;
+
  }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
   P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
   P('PROBE_END');

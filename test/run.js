@@ -40,7 +40,10 @@ const MIME = {
 const SPECS = [
   { name: 'export', file: 'specs/export.spec.html', desc: '图框 → 分页导出 → 像素断言' },
   { name: 'sync', file: 'specs/sync.spec.html', desc: '双窗口实时同步' },
-  { name: 'op', file: 'specs/op.spec.html', desc: 'op 白名单与序列化往返' }
+  { name: 'op', file: 'specs/op.spec.html', desc: 'op 白名单与序列化往返' },
+  { name: 'relay', type: 'node', file: 'specs/relay.spec.js', desc: '中继鉴权 / 限流 / 快照' },
+  { name: 'perf', file: 'specs/perf.spec.html', desc: '全量重绘与网格缓存' },
+  { name: 'ui', file: 'specs/ui.spec.html', desc: 'a11y 与界面语言' }
 ];
 
 /* 注入到 IIFE 末尾的测试探针 */
@@ -49,13 +52,20 @@ window.__T = {
   doc, sel, doOps, applyOp, sanitizeOp, requestDraw, renderExport, handleMsg,
   addNote, addShape, addText, addComment, addFrame, addImage,
   toggleHidden, applyColor, hitTop, hitFrame, toScreen, view, applyView,
+  loadLocal, persistNow, makeZip, crc32, exportPNG,
+  syncNotes, syncImages, renderFrames, renderShapes, renderTexts, renderComments,
+  renderEdges, drawBoard, drawInk, drawOverlay,
   get tool(){ return tool; },
   get ROOM(){ return ROOM; },
   get me(){ return me; },
   get peers(){ return peers; },
   get imgLockRatio(){ return imgLockRatio; },
   get frameMul(){ return frameMul; },
-  get idbBroken(){ return idbBroken; }
+  get idbBroken(){ return idbBroken; },
+  get gridKey(){ return gridPatKey; },
+  get DOC_VERSION(){ return DOC_VERSION; },
+  get exportHD(){ return exportHD; }, set exportHD(v){ exportHD = !!v; },
+  get exportPerFrame(){ return exportPerFrame; }, set exportPerFrame(v){ exportPerFrame = !!v; }
 };
 `;
 
@@ -122,6 +132,22 @@ function runSpec(spec, port) {
   });
 }
 
+function runNodeSpec(spec) {
+  return new Promise(resolve => {
+    const file = path.join(__dirname, spec.file);
+    const child = spawn(process.execPath, [file], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    const t0 = Date.now();
+    child.stdout.on('data', d => out += d.toString());
+    child.stderr.on('data', d => out += d.toString());
+    const timer = setTimeout(() => { try { child.kill(); } catch (e) {} }, TIMEOUT);
+    child.on('close', code => {
+      clearTimeout(timer);
+      resolve({ name: spec.name, ok: code === 0 && !/✗/.test(out), out, secs: Math.round((Date.now() - t0) / 1000) });
+    });
+  });
+}
+
 (async () => {
   const only = process.argv.slice(2).filter(a => !a.startsWith('-'));
   const list = only.length ? SPECS.filter(s => only.includes(s.name)) : SPECS;
@@ -133,7 +159,7 @@ function runSpec(spec, port) {
   const results = [];
   for (const spec of list) {
     console.log('\n=== ' + spec.name + ' · ' + spec.desc + ' ===');
-    const r = await runSpec(spec, port);
+    const r = spec.type === 'node' ? await runNodeSpec(spec) : await runSpec(spec, port);
     process.stdout.write(r.out || '(无输出)\n');
     if (!r.out) console.log('!! 超时或未回传结果');
     results.push(r);

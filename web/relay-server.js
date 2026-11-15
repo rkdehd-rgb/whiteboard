@@ -35,6 +35,18 @@ const PAGE = path.resolve(argOf('page', path.join(__dirname, 'whiteboard.html'))
 const MAX_PAYLOAD = 32 * 1024 * 1024;      // 单帧上限 32MB（图片 base64 可能较大）
 const SAVE_DEBOUNCE = 1500;                // 快照落盘节流
 
+/* ---------- 安全与容量上限 ---------- */
+const TOKEN = argOf('token', process.env.RELAY_TOKEN || '');   // 配置后所有连接都要带 ?token=
+const MAX_CONNS = parseInt(argOf('maxconn', process.env.RELAY_MAX_CONN || '500'), 10);
+const RL_MSG = parseInt(argOf('ratemsg', '120'), 10);          // 单连接每秒消息数上限
+const RL_BYTES = 4 * 1024 * 1024;                             // 单连接每秒字节上限
+const MAX_SNAP_BYTES = Math.round(parseFloat(argOf('snapmb', '12')) * 1024 * 1024); // 单房间快照上限（超出不落库）
+const MAX_SNAP_ROOMS = parseInt(argOf('snaprooms', '200'), 10);   // 内存中最多保留多少个房间的快照
+const ROOM_RE = /^[\w.\-]{1,64}$/;                            // 房间名只允许字母数字下划线点横线
+const validRoom = r => (typeof r === 'string' && ROOM_RE.test(r)) ? r : '';
+
+let conns = 0;
+
 if (SAVE) fs.mkdirSync(DIR, { recursive: true });
 
 /* ---------- 房间状态 ---------- */
@@ -73,18 +85,39 @@ function hasContent(doc) {
   return false;
 }
 
+const snapPending = new Map();     // key -> 待落盘的 JSON（LRU 淘汰内存副本不影响落盘）
+
+function evictSnaps() {
+  while (snaps.size > MAX_SNAP_ROOMS) {
+    const oldest = snaps.keys().next().value;
+    snaps.delete(oldest);
+    console.log('[snap] LRU 淘汰 ' + oldest + '（内存仅保留最近 ' + MAX_SNAP_ROOMS + ' 个房间）');
+  }
+}
+
 function keepSnap(key, doc) {
   if (!doc || typeof doc !== 'object') return;
-  if (!hasContent(doc)) return;         // 空白板不覆盖已有快照
-  snaps.set(key, doc);
+  if (!hasContent(doc)) return;                 // 空白板不覆盖已有快照
+  let json;
+  try { json = JSON.stringify({ doc, ts: Date.now() }); } catch (err) { return; }
+  if (json.length > MAX_SNAP_BYTES) {           // 超限快照不入库，避免拖垮内存与磁盘
+    console.log('[snap] 跳过 ' + key + '：快照 ' + (json.length / 1048576).toFixed(1) + 'MB 超过上限');
+    return;
+  }
+  snaps.delete(key); snaps.set(key, doc);       // delete+set 刷新 LRU 顺序
+  evictSnaps();
+  snapPending.set(key, json);
   if (!SAVE) return;
   if (saveTimers.has(key)) return;
   saveTimers.set(key, setTimeout(() => {
     saveTimers.delete(key);
+    const body = snapPending.get(key);          // 取最新一份，避免写入被覆盖前的旧内容
+    snapPending.delete(key);
+    if (!body) return;
     try {
       const tmp = snapFile(key) + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify({ doc: snaps.get(key), ts: Date.now() }));
-      fs.renameSync(tmp, snapFile(key));   // 原子替换，避免写到一半被读
+      fs.writeFileSync(tmp, body);
+      fs.renameSync(tmp, snapFile(key));        // 原子替换，避免写到一半被读
     } catch (err) {
       console.log('[save] ' + key + ' 失败: ' + err.message);
     }
@@ -92,6 +125,29 @@ function keepSnap(key, doc) {
 }
 
 /* ---------- WebSocket 帧编解码 ---------- */
+/* 主动发关闭帧：让客户端能读到原因，而不是"连接莫名其妙断了" */
+function closeWith(sock, code, reason) {
+  if (sock.destroyed) return;
+  const r = Buffer.from(String(reason || '').slice(0, 100), 'utf8');
+  const payload = Buffer.alloc(2 + r.length);
+  payload.writeUInt16BE(code, 0);
+  r.copy(payload, 2);
+  try {
+    sock.write(Buffer.concat([Buffer.from([0x88, payload.length]), payload]));
+    sock.end();
+  } catch (err) {}
+  setTimeout(() => { try { sock.destroy(); } catch (err) {} }, 200);
+}
+
+/* 固定窗口限流：单连接每秒的消息数与字节数 */
+function allow(peer, bytes) {
+  const t = Date.now();
+  if (t - peer.wt >= 1000) { peer.wt = t; peer.wn = 0; peer.wb = 0; }
+  peer.wn++;
+  peer.wb += bytes;
+  return peer.wn <= RL_MSG && peer.wb <= RL_BYTES;
+}
+
 function send(sock, str) {
   if (sock.destroyed) return;
   const payload = Buffer.from(str, 'utf8');
@@ -175,7 +231,10 @@ const server = http.createServer((req, res) => {
   if (p === '/health' || p.endsWith('/health')) {
     const info = [...rooms.entries()].map(([k, v]) => k + ':' + v.size);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true, rooms: info, snaps: [...snaps.keys()] }));
+    res.end(JSON.stringify({
+      ok: true, auth: !!TOKEN, rooms: info, snaps: [...snaps.keys()],
+      limits: { conns: MAX_CONNS, msgPerSec: RL_MSG, snapRooms: MAX_SNAP_ROOMS }
+    }));
     return;
   }
   // 直接托管白板页面：别的设备打开网址就能用，不用拷 HTML 文件
@@ -193,9 +252,32 @@ const server = http.createServer((req, res) => {
   res.writeHead(404); res.end('not found');
 });
 
+function rejectUpgrade(sock, status, text) {
+  try {
+    sock.write('HTTP/1.1 ' + status + '\r\nConnection: close\r\nContent-Length: ' + Buffer.byteLength(text) + '\r\n\r\n' + text);
+    sock.end();
+  } catch (err) {}
+  // 立即 destroy 可能截断刚写出的响应，让客户端只看到"连接被重置"
+  setTimeout(() => { try { sock.destroy(); } catch (err) {} }, 300);
+}
+
 server.on('upgrade', (req, sock) => {
   const key = req.headers['sec-websocket-key'];
   if (!key) { sock.destroy(); return; }
+  const u = new URL(req.url || '/', 'http://x');
+
+  if (conns >= MAX_CONNS) {                       // 连接数上限，避免被刷爆
+    console.log('[auth] 拒绝连接：已达上限 ' + MAX_CONNS);
+    rejectUpgrade(sock, '503 Service Unavailable', 'too many connections');
+    return;
+  }
+  if (TOKEN && u.searchParams.get('token') !== TOKEN) {   // 口令校验（配置后才启用）
+    console.log('[auth] 拒绝连接：口令不正确');
+    rejectUpgrade(sock, '401 Unauthorized', 'invalid token');
+    return;
+  }
+  conns++;
+
   const accept = crypto.createHash('sha1').update(key + GUID).digest('base64');
   sock.write(
     'HTTP/1.1 101 Switching Protocols\r\n' +
@@ -206,9 +288,8 @@ server.on('upgrade', (req, sock) => {
   sock.setNoDelay(true);
 
   // 房间：URL ?room= 优先，否则留空、由首条消息里的 room 字段决定
-  const u = new URL(req.url || '/', 'http://x');
-  let room = u.searchParams.get('room') || '';
-  const peer = { sock, room: '', dead: false };
+  let room = validRoom(u.searchParams.get('room') || '');
+  const peer = { sock, room: '', dead: false, wt: Date.now(), wn: 0, wb: 0 };
 
   const join = key2 => {
     peer.room = key2;
@@ -222,13 +303,19 @@ server.on('upgrade', (req, sock) => {
   const parse = makeParser((payload, kind) => {
     if (kind === 'close') { try { sock.end(); } catch (e) {} return; }
     if (kind === 'ping') { /* 浏览器不发 ping，留空即可 */ return; }
+    if (!allow(peer, payload.length)) {           // 限流：超频直接断开，不进入业务逻辑
+      console.log('[limit] 断开 ' + (peer.room || '?') + '：超过 ' + RL_MSG + ' 条/秒 或 4MB/秒');
+      closeWith(sock, 1008, 'rate limit exceeded');
+      peer.dead = true;
+      return;
+    }
     let msg = null;
     try { msg = JSON.parse(payload.toString('utf8')); } catch (err) { return; }
     if (!msg || typeof msg !== 'object') return;
 
     // 首次收到消息时才确定房间（URL 没带 ?room= 的情况）
     if (!peer.room) {
-      const r = room || (typeof msg.room === 'string' ? msg.room : '') || 'default';
+      const r = room || validRoom(msg.room) || 'default';
       join(r);
       if (!room) room = r;
     }
@@ -261,6 +348,7 @@ server.on('upgrade', (req, sock) => {
   sock.on('error', () => { peer.dead = true; });
   sock.on('close', () => {
     peer.dead = true;
+    conns = Math.max(0, conns - 1);
     if (peer.room && rooms.has(peer.room)) {
       const set = rooms.get(peer.room);
       set.delete(peer);
@@ -285,5 +373,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('  房间内容保存在: ' + (SAVE ? DIR : '（已关闭落盘）'));
   console.log('  页面文件: ' + PAGE);
   console.log('');
+  console.log('  访问口令: ' + (TOKEN ? '已启用（网址需带 ?token=…）' : '未设置（--token 或 RELAY_TOKEN 可开启）'));
+  console.log('  连接上限: ' + MAX_CONNS + ' · 单连接限流: ' + RL_MSG + ' 条/秒');
   console.log('  提示: 想要各自独立的白板，网址后面加 #room=房间名');
 });

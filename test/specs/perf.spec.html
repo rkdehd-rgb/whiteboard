@@ -1,0 +1,110 @@
+<!DOCTYPE html><meta charset="utf-8"><title>perf 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:420px;border:1px solid #c8ccd3;background:#fff;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 5：requestDraw 每帧全量重建 / 网格每帧重画
+   用 MutationObserver 断言「无事发生时不碰 DOM」，比纯计时更稳。 */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80); } return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, D = W.document, T = W.__T;
+
+  /* ---------- 造量：120 便签 + 120 图形 + 60 文本 ---------- */
+  T.doOps([{ k:'clear' }]);
+  await wait(120);
+  for(var i=0;i<120;i++) T.addNote(60 + (i%12)*190, 60 + Math.floor(i/12)*150, { text:'便签 ' + i });
+  await wait(200);
+  for(var j=0;j<120;j++) T.addShape(2600 + (j%12)*150, 200 + Math.floor(j/12)*120, j%2 ? 'rect' : 'ellipse');
+  await wait(200);
+  for(var k2=0;k2<60;k2++) T.addText(60 + (k2%10)*200, 2600 + Math.floor(k2/10)*60, { text:'文本 ' + k2 });
+  await wait(500);
+  T.sel.clear(); T.requestDraw(); await wait(400);
+
+  ck(Object.keys(T.doc.notes).length === 120 && Object.keys(T.doc.shapes).length === 120 && Object.keys(T.doc.texts).length === 60,
+     '场景就绪（120 便签 / 120 图形 / 60 文本）');
+  ck(D.querySelectorAll('#shapeG path').length >= 120, '图形层渲染完整（path ' + D.querySelectorAll('#shapeG path').length + '）');
+  ck(D.querySelectorAll('#notes .note').length >= 120, '便签层渲染完整（' + D.querySelectorAll('#notes .note').length + '）');
+  ck(D.querySelectorAll('#texts [data-id]').length >= 60, '文本层渲染完整（' + D.querySelectorAll('#texts [data-id]').length + '）');
+
+  function oneFrame(){
+    var t0 = performance.now();
+    T.syncNotes(); T.syncImages(); T.renderFrames(); T.renderShapes(); T.renderTexts();
+    T.renderComments(); T.renderEdges(); T.drawBoard(); T.drawInk(); T.drawOverlay();
+    return performance.now() - t0;
+  }
+
+  /* ---------- 1. 空转不得触碰 DOM ---------- */
+  var shapeMut = 0, textMut = 0;
+  var mo1 = new W.MutationObserver(function(list){ shapeMut += list.length; });
+  var mo2 = new W.MutationObserver(function(list){ textMut += list.length; });
+  mo1.observe(D.getElementById('shapeG'), { childList:true, subtree:true, attributes:true });
+  mo2.observe(D.querySelector('#texts [data-id]'), { childList:true, subtree:true, attributes:true });
+  var firstNote = Object.keys(T.doc.notes)[0];
+  var noteEl = D.querySelector('#notes .note[data-id="' + firstNote + '"]');
+  var noteMut = 0, mo3 = new W.MutationObserver(function(list){ noteMut += list.length; });
+  mo3.observe(noteEl, { childList:true, subtree:true, attributes:true, characterData:true });
+
+  for(var f=0;f<15;f++){ oneFrame(); await wait(12); }
+  await wait(60);
+  ck(shapeMut === 0, '空转 15 帧：图形层 0 次 DOM 变更（实际 ' + shapeMut + '）');
+  ck(textMut === 0, '空转 15 帧：文本层 0 次 DOM 变更（实际 ' + textMut + '）');
+  ck(noteMut === 0, '空转 15 帧：便签 0 次 DOM/样式变更（实际 ' + noteMut + '）');
+
+  /* 改一个图形 / 一个便签，必须立刻反映 */
+  var firstShape = Object.keys(T.doc.shapes)[0];
+  var sh = T.doc.shapes[firstShape];
+  T.applyOp({ k:'shape.update', id:firstShape, patch:{ x: sh.x + 40, fill:'#F8C9D2' } }, true);
+  T.applyOp({ k:'note.update', id:firstNote, patch:{ x: T.doc.notes[firstNote].x + 30 } }, true);
+  oneFrame();                        // applyOp 只改 doc，不触发重绘
+  await wait(120);
+  ck(shapeMut > 0, '改动图形后图形层确实重建（' + shapeMut + '）');
+  ck(noteMut > 0, '改动便签后便签层确实更新（' + noteMut + '）');
+
+  /* ---------- 2. 网格缓存 ---------- */
+  T.view.z = 1; T.view.x = 0; T.view.y = 0; T.applyView();
+  oneFrame();
+  var gk1 = T.gridKey;
+  oneFrame(); oneFrame();
+  ck(!!gk1 && T.gridKey === gk1, '同一缩放级别下网格图案复用（key=' + gk1 + '）');
+  T.view.z = 0.55; T.applyView(); oneFrame();
+  ck(T.gridKey !== gk1, '缩放变化后重建网格图案（' + gk1 + ' → ' + T.gridKey + '）');
+
+  /* ---------- 3. 计时（信息性 + 宽松上限） ---------- */
+  T.view.z = 1; T.view.x = 0; T.view.y = 0; T.applyView();
+  await wait(100);
+  var idle = [];
+  for(var t1=0;t1<20;t1++){ idle.push(oneFrame()); }
+  var idleAvg = idle.reduce(function(a,b){return a+b;},0) / idle.length;
+
+  var dirty = [];
+  var ids = Object.keys(T.doc.shapes);
+  for(var t2=0;t2<20;t2++){
+    var sid = ids[t2 % ids.length], so = T.doc.shapes[sid];
+    T.applyOp({ k:'shape.update', id:sid, patch:{ x: so.x + 1 } }, true);
+    dirty.push(oneFrame());
+  }
+  var dirtyAvg = dirty.reduce(function(a,b){return a+b;},0) / dirty.length;
+
+  P('  空转 ' + idleAvg.toFixed(2) + ' ms/帧 · 元素变化 ' + dirtyAvg.toFixed(2) + ' ms/帧（240 元素）');
+  ck(idleAvg < 8, '空转帧耗时 < 8ms（实际 ' + idleAvg.toFixed(2) + 'ms）');
+  ck(idleAvg <= dirtyAvg + 0.5, '空转不慢于有变更的帧（' + idleAvg.toFixed(2) + ' vs ' + dirtyAvg.toFixed(2) + '）');
+
+  mo1.disconnect(); mo2.disconnect(); mo3.disconnect();
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+  P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+  P('PROBE_END');
+})();
+</script>
