@@ -1,0 +1,131 @@
+<!DOCTYPE html><meta charset="utf-8"><title>shape 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:700px;border:1px solid #c8ccd3;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 9：图形工具「按下定位 → 拖动定尺寸 → 松开创建」
+   历史行为是点击即按默认尺寸落一个图形。 */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80);} return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, T = W.__T, D = W.document;
+  var vp = D.getElementById('viewport');
+  await wait(300);
+
+  function pe(type, lx, ly, opt){
+    opt = opt || {};
+    var r = vp.getBoundingClientRect();
+    var ev = new W.PointerEvent(type, {
+      bubbles:true, cancelable:true, pointerId:1, pointerType:'mouse', isPrimary:true,
+      clientX:r.left + lx, clientY:r.top + ly, button:0,
+      buttons: type === 'pointerup' ? 0 : 1, shiftKey: !!opt.shift
+    });
+    (type === 'pointerdown' ? vp : W).dispatchEvent(ev);
+  }
+  function down(x,y){ pe('pointerdown', x, y); }
+  function move(x,y,shift){ pe('pointermove', x, y, { shift:shift }); }
+  function up(x,y,shift){ pe('pointerup', x, y, { shift:shift }); }
+  function chip(k){
+    var b = D.querySelector('#scChips .sc-chip[data-k="' + k + '"]');
+    if(b) b.click();
+  }
+  function resetView(){ T.view.x = 0; T.view.y = 0; T.view.z = 1; T.applyView(); }
+  function shapes(){ return Object.keys(T.doc.shapes).map(function(id){ return T.doc.shapes[id]; }); }
+  function last(){ var a = shapes(); return a[a.length-1]; }
+
+  T.doOps([{ k:'clear' }]);
+  T.setTool('shape');
+  resetView();
+  await wait(250);
+
+  /* ---------- A. 按下不落图形 ---------- */
+  chip('rect');
+  await wait(80);
+  down(300, 300);
+  await wait(80);
+  ck(shapes().length === 0, '按下时还没有创建图形（修复前会立刻落一个）');
+  ck(T.drag.kind === 'shapeDraw', '工具进入拖拽创建态（' + T.drag.kind + '）');
+
+  /* ---------- B. 拖动实时预览尺寸 ---------- */
+  move(600, 500);
+  await wait(100);
+  ck(shapes().length === 0, '拖动过程中仍然没有写入文档');
+  ck(T.drag.preview && T.drag.preview.w === 300 && T.drag.preview.h === 200,
+     '预览矩形跟随拖动（' + (T.drag.preview ? T.drag.preview.w + '×' + T.drag.preview.h : '—') + '）');
+
+  /* ---------- C. 松开按拖出的尺寸创建 ---------- */
+  up(600, 500);
+  await wait(220);
+  ck(shapes().length === 1, '松开后创建 1 个图形');
+  var s1 = last();
+  ck(s1.w === 300 && s1.h === 200, '尺寸 = 拖出的矩形（' + s1.w + '×' + s1.h + '）');
+  ck(s1.x === 300 && s1.y === 300, '位置 = 拖拽框左上角（' + s1.x + ',' + s1.y + '）');
+  ck([...T.sel][0] === 'sh:' + s1.id, '创建后自动选中该图形');
+
+  /* ---------- D. 反向拖动（从右下往左上） ---------- */
+  T.setTool('shape'); chip('rect');
+  down(700, 600); move(500, 450); up(500, 450);
+  await wait(220);
+  var s2 = last();
+  ck(s2.w === 200 && s2.h === 150 && s2.x === 500 && s2.y === 450,
+     '反向拖动归一化为左上角 + 正尺寸（' + s2.x + ',' + s2.y + ' ' + s2.w + '×' + s2.h + '）');
+
+  /* ---------- E. 单击（不拖）回退默认尺寸 ---------- */
+  T.setTool('shape'); chip('rect');
+  var n0 = shapes().length;
+  down(800, 400); up(800, 400);
+  await wait(220);
+  ck(shapes().length === n0 + 1, '单击也会创建一个图形（不会什么都没发生）');
+  var s3 = last();
+  ck(s3.w === 150 && s3.h === 100, '单击回退默认尺寸（' + s3.w + '×' + s3.h + '）');
+  ck(s3.x === 725 && s3.y === 350, '单击时以按下点为中心（' + s3.x + ',' + s3.y + '）');
+
+  /* ---------- F. Shift 约束正方形 ---------- */
+  T.setTool('shape'); chip('rect');
+  down(200, 200); move(400, 300, true); up(400, 300, true);
+  await wait(220);
+  var s4 = last();
+  ck(s4.w === s4.h && s4.w === 200, 'Shift 拖动约束为正方形（' + s4.w + '×' + s4.h + '）');
+
+  /* ---------- G. 直线水平拖拽仍有可见厚度 ---------- */
+  T.setTool('shape'); chip('line');
+  await wait(80);
+  down(300, 300); move(700, 300); up(700, 300);
+  await wait(220);
+  var s5 = last();
+  ck(s5.kind === 'line', '创建的是直线（kind=' + s5.kind + '）');
+  ck(s5.w === 400 && s5.h === 8, '水平拖拽宽度 400、厚度取最小值 8（' + s5.w + '×' + s5.h + '）');
+  ck(s5.y === 296, '线在拖拽轨迹上居中（y=' + s5.y + '）');
+
+  /* ---------- H. 椭圆按拖拽矩形创建 ---------- */
+  T.setTool('shape'); chip('ellipse');
+  down(100, 500); move(400, 700); up(400, 700);
+  await wait(220);
+  var s6 = last();
+  ck(s6.kind === 'ellipse' && s6.w === 300 && s6.h === 200,
+     '椭圆按拖拽矩形创建（' + s6.kind + ' ' + s6.w + '×' + s6.h + '）');
+
+  /* ---------- I. 切回选择工具后不误创建 ---------- */
+  T.setTool('select');
+  var n1 = shapes().length;
+  down(900, 200); move(950, 240); up(950, 240);
+  await wait(150);
+  ck(shapes().length === n1, '选择工具下拖拽不会创建图形');
+
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+ P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+ P('PROBE_END');
+})();
+</script>

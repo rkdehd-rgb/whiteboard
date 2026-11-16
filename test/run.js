@@ -45,7 +45,8 @@ const SPECS = [
   { name: 'perf', file: 'specs/perf.spec.html', desc: '全量重绘与网格缓存' },
   { name: 'ui', file: 'specs/ui.spec.html', desc: 'a11y 与界面语言' },
   { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' },
-  { name: 'pinch', file: 'specs/pinch.spec.html', desc: '手机端双指缩放' }
+  { name: 'pinch', file: 'specs/pinch.spec.html', desc: '手机端双指缩放' },
+  { name: 'shape', file: 'specs/shape.spec.html', desc: '图形拖拽创建' }
 ];
 
 /* 注入到 IIFE 末尾的测试探针 */

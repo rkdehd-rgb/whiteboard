@@ -1511,10 +1511,26 @@ function shapeDefSize(kind){
   if(kind==='diamond'||kind==='triangle') return { w:140, h:110 };
   return { w:150, h:100 };
 }
-function addShape(wx, wy, kind){
+function addShape(wx, wy, kind, rect){
   kind = kind || shapeKind;
   const ds = shapeDefSize(kind);
-  const o = { id: uid(), x: Math.round(wx-ds.w/2), y: Math.round(wy-ds.h/2), w: ds.w, h: ds.h, kind,
+  let x, y, w, h;
+  if(rect){
+    /* 拖拽创建：以拖出的矩形为准 */
+    w = Math.max(1, Math.round(rect.w));
+    h = Math.max(1, Math.round(rect.h));
+    x = Math.round(rect.x);
+    y = Math.round(rect.y);
+    if(kind === 'line' || kind === 'arrow'){
+      // 拖得很平时给一个可见厚度（与缩放手柄的最小高度一致），并保持视觉居中
+      if(h < 8){ y = Math.round(rect.y + rect.h/2 - 4); h = 8; }
+      if(w < 8){ x = Math.round(rect.x + rect.w/2 - 4); w = 8; }
+    }
+  } else {
+    /* 单击：默认尺寸，以按下点为中心 */
+    x = Math.round(wx - ds.w/2); y = Math.round(wy - ds.h/2); w = ds.w; h = ds.h;
+  }
+  const o = { id: uid(), x, y, w, h, kind,
     fill: curShapeFill, stroke: curShapeStroke, sw: curShapeSw, dash: curShapeDash, op: curShapeOp, z: ++zTop, ts: now() };
   doOps([{ k:'shape.add', o }]);
   pushHist([{ k:'shape.remove', id:o.id }], [{ k:'shape.add', o }]);
@@ -2106,6 +2122,31 @@ function drawOverlay(){
       }
       ctx.restore();
     }
+  }
+
+  // 图形拖拽预览（只在本地画，不进文档、不广播）
+  if(drag.kind === 'shapeDraw' && drag.preview && (drag.preview.w > 2 || drag.preview.h > 2)){
+    const pv = drag.preview;
+    const a = toScreen(pv.x, pv.y), b = toScreen(pv.x + pv.w, pv.y + pv.h);
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = (curShapeStroke && curShapeStroke !== 'none') ? curShapeStroke : '#2E3A46';
+    ctx.fillStyle = 'rgba(46,58,70,.06)';
+    ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.strokeRect(a.x + 0.5, a.y + 0.5, Math.max(0, b.x - a.x - 1), Math.max(0, b.y - a.y - 1));
+    ctx.setLineDash([]);
+    const label = Math.round(pv.w) + ' × ' + Math.round(pv.h);
+    ctx.font = '600 11px system-ui,sans-serif';
+    ctx.textBaseline = 'bottom';
+    const tw = ctx.measureText(label).width;
+    const lx = Math.min(Math.max(a.x + 2, 6), VW - tw - 10);
+    const ly = a.y > 24 ? a.y - 6 : b.y + 18;
+    ctx.fillStyle = 'rgba(255,255,255,.94)';
+    ctx.fillRect(lx - 4, ly - 14, tw + 8, 17);
+    ctx.fillStyle = '#2E3A46';
+    ctx.fillText(label, lx, ly);
+    ctx.restore();
   }
 
   drawGuides(ctx);
@@ -2963,7 +3004,7 @@ function abortDragForPinch(){
       if(d && d.rev && d.rev.length) doOps(d.rev);
     }catch(err){}
   }
-  drag.kind = null; drag.before = null; drag.moved = false;
+  drag.kind = null; drag.before = null; drag.moved = false; drag.preview = null;
   draw.kind = null; draw.from = null; draw.pts = null;
   liveStrokeId = null;
   guides = [];
@@ -3184,8 +3225,12 @@ function onDown(e){
     return;
   }
   if(tool === 'shape'){
-    const o = addShape(w.x, w.y, shapeKind);
-    sel.clear(); sel.add('sh:'+o.id); requestDraw();
+    // 按下先定位，拖动定尺寸，松开才创建（见 onUp 的 shapeDraw 分支）
+    drag.kind = 'shapeDraw';
+    drag.sx = w.x; drag.sy = w.y;
+    drag.sk = shapeKind;
+    drag.preview = { x:w.x, y:w.y, w:0, h:0 };
+    sel.clear();
     e.preventDefault(); return;
   }
   if(tool === 'text'){
@@ -3224,6 +3269,17 @@ function onMove(e){
   }
 
   switch(drag.kind){
+    case 'shapeDraw': {
+      let x0 = drag.sx, y0 = drag.sy, x1 = w.x, y1 = w.y;
+      if(e.shiftKey){                       // 按住 Shift 约束为正方形
+        const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+        x1 = x0 + (x1 >= x0 ? s : -s);
+        y1 = y0 + (y1 >= y0 ? s : -s);
+      }
+      drag.preview = { x:Math.min(x0, x1), y:Math.min(y0, y1), w:Math.abs(x1 - x0), h:Math.abs(y1 - y0) };
+      drawOverlay();
+      break;
+    }
     case 'pan': {
       view.x += e.clientX - drag.ox;
       view.y += e.clientY - drag.oy;
@@ -3392,6 +3448,15 @@ function onUp(e){
   }
   if(ptrs.size === 0) pinchLatch = false;
 
+  if(drag.kind === 'shapeDraw'){
+    const pv = drag.preview;
+    const kind = drag.sk || shapeKind;
+    // 有实际拖动才按矩形创建；只是点一下则回退默认尺寸
+    const dragged = !!(pv && Math.max(pv.w, pv.h) >= 8);
+    const made = dragged ? addShape(0, 0, kind, pv) : addShape(drag.sx, drag.sy, kind);
+    if(made){ sel.clear(); sel.add('sh:'+made.id); }
+    drag.preview = null;
+  }
   if(drag.kind === 'pan'){
     vp.style.cursor = tool==='pan' ? 'grab' : 'default';
   }
