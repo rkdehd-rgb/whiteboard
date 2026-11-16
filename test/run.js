@@ -44,7 +44,8 @@ const SPECS = [
   { name: 'relay', type: 'node', file: 'specs/relay.spec.js', desc: '中继鉴权 / 限流 / 快照' },
   { name: 'perf', file: 'specs/perf.spec.html', desc: '全量重绘与网格缓存' },
   { name: 'ui', file: 'specs/ui.spec.html', desc: 'a11y 与界面语言' },
-  { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' }
+  { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' },
+  { name: 'pinch', file: 'specs/pinch.spec.html', desc: '手机端双指缩放' }
 ];
 
 /* 注入到 IIFE 末尾的测试探针 */
@@ -57,6 +58,8 @@ window.__T = {
   syncNotes, syncImages, renderFrames, renderShapes, renderTexts, renderComments,
   renderEdges, drawBoard, drawInk, drawOverlay,
   get tool(){ return tool; },
+  drag, ptrs, pinch, setTool,
+  get pinchLatch(){ return pinchLatch; },
   get ROOM(){ return ROOM; },
   get me(){ return me; },
   get peers(){ return peers; },

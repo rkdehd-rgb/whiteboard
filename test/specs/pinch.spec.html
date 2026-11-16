@@ -1,0 +1,162 @@
+<!DOCTYPE html><meta charset="utf-8"><title>pinch 主线</title>
+<style>body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+#log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+iframe{width:1200px;height:700px;border:1px solid #c8ccd3;margin-top:6px}</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80);} return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 10000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, T = W.__T, D = W.document;
+  var vp = D.getElementById('viewport');
+  await wait(300);
+
+  function pe(type, id, lx, ly){
+    var r = vp.getBoundingClientRect();
+    var ev = new W.PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+      isPrimary: id === 1, clientX: r.left + lx, clientY: r.top + ly,
+      button: 0, buttons: type === 'pointerup' ? 0 : 1
+    });
+    (type === 'pointerdown' ? vp : W).dispatchEvent(ev);
+  }
+  function down(id, x, y){ pe('pointerdown', id, x, y); }
+  function move(id, x, y){ pe('pointermove', id, x, y); }
+  function up(id, x, y){ pe('pointerup', id, x, y); }
+  function resetView(){ T.view.x = 0; T.view.y = 0; T.view.z = 1; T.applyView(); }
+  function worldAt(lx, ly){
+    var r = vp.getBoundingClientRect();
+    return { x: (lx - T.view.x) / T.view.z, y: (ly - T.view.y) / T.view.z };
+  }
+
+  T.doOps([{ k:'clear' }]);
+  T.setTool('select');
+  await wait(200);
+  resetView();
+  await wait(120);
+
+  /* ---------- A. 双指拉开 = 放大 ---------- */
+  var a0 = worldAt(500, 300);
+  down(1, 400, 300); down(2, 600, 300);       // 距离 200
+  await wait(60);
+  ck(T.pinch.on === true, '第二根手指按下即进入缩放模式（pinch.on）');
+  ck(T.ptrs.size === 2, '指针跟踪到 2 根手指');
+  move(1, 300, 300); move(2, 700, 300);       // 距离 400
+  await wait(120);
+  ck(Math.abs(T.view.z - 2) < 0.06, '拉开一倍距离 → 缩放 1× → ' + T.view.z.toFixed(3) + '×');
+  var a1 = worldAt(500, 300);
+  ck(Math.abs(a1.x - a0.x) < 2 && Math.abs(a1.y - a0.y) < 2,
+     '两指中点下的世界坐标保持不动（' + a0.x.toFixed(1) + ',' + a0.y.toFixed(1) + ' → ' + a1.x.toFixed(1) + ',' + a1.y.toFixed(1) + '）');
+  up(1, 300, 300); up(2, 700, 300);
+  await wait(120);
+  ck(T.pinch.on === false, '手指抬起后退出缩放模式');
+
+  /* ---------- B. 双指同向平移 ---------- */
+  resetView(); await wait(100);
+  down(1, 400, 300); down(2, 500, 300);
+  await wait(50);
+  move(1, 500, 380); move(2, 600, 380);       // 中点 +100,+80，距离不变
+  await wait(120);
+  ck(Math.abs(T.view.z - 1) < 0.01, '两指同向平移时缩放保持不变（' + T.view.z.toFixed(3) + '）');
+  ck(Math.abs(T.view.x - 100) < 2 && Math.abs(T.view.y - 80) < 2,
+     '画布跟随两指中点平移（x=' + T.view.x.toFixed(1) + ', y=' + T.view.y.toFixed(1) + '）');
+  up(1, 500, 380); up(2, 600, 380);
+  await wait(100);
+
+  /* ---------- C. 缩放上下限 ---------- */
+  resetView(); await wait(100);
+  down(1, 400, 300); down(2, 500, 300); await wait(50);
+  move(1, 0, 300); move(2, 1100, 300);        // 距离 100 → 1100
+  await wait(100);
+  ck(T.view.z <= 5.001 && T.view.z >= 4.9, '放大到上限被夹在 5×（' + T.view.z.toFixed(2) + '）');
+  up(1, 0, 300); up(2, 1100, 300);
+  await wait(100);
+
+  resetView(); await wait(100);
+  down(1, 200, 300); down(2, 1000, 300);      // d0 = 800
+  await wait(50);
+  move(1, 450, 300); move(2, 474, 300);       // 压到死区下限 24px
+  await wait(100);
+  ck(T.view.z <= 0.125 && T.view.z >= 0.119, '缩小到下限被夹在 0.12×（' + T.view.z.toFixed(3) + '）');
+  up(1, 450, 300); up(2, 474, 300);
+  await wait(100);
+
+  /* ---------- D. 双指落下会撤销第一根手指的拖动 ---------- */
+  resetView(); await wait(100);
+  var n = T.addNote(600, 320, { text:'pinch' });
+  await wait(200);
+  var nx0 = T.doc.notes[n.id].x;
+  down(1, 600, 320);                           // 落在便签上
+  await wait(50);
+  ck(T.drag.kind === 'move', '第一根手指落在便签上进入拖动（' + T.drag.kind + '）');
+  move(1, 680, 320);
+  await wait(80);
+  var nx1 = T.doc.notes[n.id].x;
+  ck(nx1 > nx0 + 30, '单指拖动确实移动了便签（' + nx0 + ' → ' + nx1 + '）');
+  down(2, 300, 500);                           // 第二根手指落下
+  await wait(100);
+  ck(T.pinch.on === true, '第二根手指落下后进入缩放');
+  ck(T.doc.notes[n.id].x === nx0, '缩放开始时便签已回滚到原位（' + T.doc.notes[n.id].x + '）');
+  up(1, 680, 320); up(2, 300, 500);
+  await wait(150);
+
+  /* ---------- E. 缩放结束后残留手指不会拖拽 ---------- */
+  resetView(); await wait(100);
+  var nx2 = T.doc.notes[n.id].x;
+  down(1, 600, 320); down(2, 500, 500); await wait(60);
+  move(1, 600, 320); move(2, 560, 500); await wait(80);
+  up(2, 560, 500);                             // 抬起第二根，第一根仍在
+  await wait(100);
+  ck(T.pinch.on === false && T.pinchLatch === true, '抬起一根后退出缩放并锁定拖拽（latch=' + T.pinchLatch + '）');
+  move(1, 700, 320);
+  await wait(100);
+  ck(T.doc.notes[n.id].x === nx2, '锁定期间残留手指移动不会拖走便签（x=' + T.doc.notes[n.id].x + '）');
+  up(1, 700, 320);
+  await wait(120);
+  ck(T.pinchLatch === false, '全部手指抬起后解除锁定');
+
+  /* ---------- F. 缩放不改动任何内容 ---------- */
+  resetView(); await wait(100);
+  T.sel.clear();
+  T.doOps([{ k:'clear' }]);
+  await wait(200);
+  var before = JSON.stringify(T.doc);
+  down(1, 300, 300); down(2, 500, 300); await wait(50);
+  move(1, 150, 220); move(2, 850, 380); await wait(80);
+  up(1, 150, 220); up(2, 850, 380); await wait(150);
+  var afterStr = JSON.stringify(T.doc);
+  if(afterStr !== before){
+    var oldDoc = JSON.parse(before);
+    ['notes','strokes','edges','images','frames','shapes','texts','comments'].forEach(function(bk){
+      var o = oldDoc[bk] || {}, n = T.doc[bk] || {};
+      Object.keys(Object.assign({}, o, n)).forEach(function(id){
+        var a1 = JSON.stringify(o[id]), b1 = JSON.stringify(n[id]);
+        if(a1 !== b1){
+          var oo = o[id] || {}, nn = n[id] || {};
+          var diff = [];
+          Object.keys(Object.assign({}, oo, nn)).forEach(function(fk){
+            if(JSON.stringify(oo[fk]) !== JSON.stringify(nn[fk])){
+              diff.push(fk + ': ' + JSON.stringify(oo[fk]) + ' → ' + JSON.stringify(nn[fk]));
+            }
+          });
+          P('  ' + bk + '/' + id + ' 差异 → ' + diff.join(' | '));
+        }
+      });
+    });
+  }
+  ck(afterStr === before, '缩放过程中没有产生任何文档改动');
+
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+ P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+ P('PROBE_END');
+})();
+</script>
