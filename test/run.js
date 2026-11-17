@@ -46,7 +46,8 @@ const SPECS = [
   { name: 'ui', file: 'specs/ui.spec.html', desc: 'a11y 与界面语言' },
   { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' },
   { name: 'pinch', file: 'specs/pinch.spec.html', desc: '手机端双指缩放' },
-  { name: 'shape', file: 'specs/shape.spec.html', desc: '图形拖拽创建' }
+  { name: 'shape', file: 'specs/shape.spec.html', desc: '图形拖拽创建' },
+  { name: 'font', file: 'specs/font.spec.html', desc: '字体切换与自定义字体' }
 ];
 
 /* 注入到 IIFE 末尾的测试探针 */
@@ -60,6 +61,8 @@ window.__T = {
   renderEdges, drawBoard, drawInk, drawOverlay,
   get tool(){ return tool; },
   drag, ptrs, pinch, setTool,
+  applyFont, fontCss, fontName, addCustomFont, removeCustomFont,
+  get curFont(){ return curFont; }, get customFonts(){ return customFonts; }, get FONT_PRESETS(){ return FONT_PRESETS; },
   get pinchLatch(){ return pinchLatch; },
   get guides(){ return guides; },
   get ROOM(){ return ROOM; },
