@@ -8,7 +8,7 @@
 </div>
 <iframe id="fa" src="../.tmp/app.html"></iframe>
 <script>
-/* 主线 10：字体切换（内置 / 系统预设 / 自定义上传） */
+/* 主线 10：字体切换（内置字体 / 系统预设 / 元素级应用） */
 var L = document.getElementById('log'), pass = 0, fail = 0;
 function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
 function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
@@ -84,46 +84,24 @@ async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ i
   await wait(150);
   ck(T.doc.notes[n2.id].font === 'hei', '非法字体值被清洗丢弃（仍为 hei）');
 
-  /* ---------- H. 自定义字体上传 ---------- */
-  var before = T.customFonts.length;
-  var bytes = null;
-  try{
-    var styles = Array.prototype.slice.call(W.document.querySelectorAll('style'));
-    for(var i=0;i<styles.length;i++){
-      var txt = styles[i].textContent || '';
-      if(txt.indexOf('WBNotoSC') < 0) continue;
-      var m = /base64,([A-Za-z0-9+/=]+)/.exec(txt);
-      if(m){ bytes = m[1]; break; }
-    }
-  }catch(e){}
+  /* ---------- H. 旧版自定义字体键不再被接受 ---------- */
+  T.applyOp({ k:'note.update', id:n2.id, patch:{ font:'u:abc123' }, ts:Date.now() }, true);
+  await wait(150);
+  ck(T.doc.notes[n2.id].font === 'hei', '旧版自定义字体键（u:xxx）被拒绝，回落原字体');
+  ck(T.fontName && T.fontName('u:abc123') === '默认', '未知字体键显示为默认字体名');
 
-  if(bytes){
-    var bin = W.atob(bytes);
-    var buf = new Uint8Array(bin.length);
-    for(var k2=0;k2<bin.length;k2++) buf[k2] = bin.charCodeAt(k2);
-    var file = new W.File([buf], '测试字体.woff', { type:'font/woff' });
-    T.addCustomFont(file);
-    var okAdd = await until(function(){ return T.customFonts.length > before; }, 12000);
-    ck(okAdd, '上传字体文件后可加入自定义列表（' + T.customFonts.length + ' 个）');
-    if(okAdd){
-      var cf = T.customFonts[T.customFonts.length-1];
-      var reg = W.document.fonts.check('16px "WBFont_' + cf.id + '"');
-      ck(reg, '自定义字体已注册为 FontFace（' + cf.name + '）');
-      T.sel.clear(); T.sel.add('n:' + n2.id);
-      T.applyFont('u:' + cf.id);
-      await wait(250);
-      ck(T.doc.notes[n2.id].font === 'u:' + cf.id, '可把自定义字体应用到元素');
-      var fEl = D.querySelector('#notes .note[data-id="' + n2.id + '"] .note-text');
-      ck(fEl && (fEl.style.fontFamily || '').indexOf('WBFont_' + cf.id) >= 0, '元素渲染引用了该自定义字体');
-      T.removeCustomFont(cf.id);
-      await wait(400);
-      ck(T.customFonts.length === before, '移除自定义字体后列表恢复');
-    }
-  } else {
-    ck(false, '未能从样式表读取内嵌字体数据，自定义上传用例未执行');
-  }
+  /* ---------- I. 字体面板只剩预设，无上传 / 删除入口 ---------- */
+  D.querySelector('#fontBtn').click();
+  await wait(200);
+  var fpop = D.querySelector('#fontPop');
+  ck(!!fpop && fpop.style.display === 'block', '点字体按钮弹出面板');
+  var items = fpop ? fpop.querySelectorAll('.font-item') : [];
+  ck(items.length === T.FONT_PRESETS.length, '面板只列 ' + items.length + ' 个预设字体');
+  ck(!fpop.querySelector('[data-up]') && !fpop.querySelector('.del'), '面板里没有上传字体 / 删除字体的入口');
+  D.querySelector('#fontBtn').click();
+  await wait(120);
 
-  /* ---------- I. 导出不报错且字体生效 ---------- */
+  /* ---------- J. 导出不报错且字体生效 ---------- */
   T.sel.clear(); T.requestDraw();
   var out = await T.renderExport();
   ck(!!out && out.W > 0 && out.H > 0, '导出渲染正常（' + (out && out.W) + '×' + (out && out.H) + '）');
