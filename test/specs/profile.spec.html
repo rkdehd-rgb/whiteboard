@@ -1,0 +1,119 @@
+<!DOCTYPE html><meta charset="utf-8"><title>profile 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:700px;border:1px solid #c8ccd3;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 11：自定义用户名称（身份弹层 / 清洗 / 持久化 / 协作者实时看到改名） */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80);} return false; }
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 15000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, D = W.document, T = W.__T;
+  await wait(800);
+
+  T.doOps([{ k:'clear' }]);
+  await wait(400);
+  T.doOps([{ k:'clear' }]);
+  await wait(300);
+
+  /* ---------- A. 默认身份 ---------- */
+  ck(!!T.me.name && T.me.name.length <= 16, '默认身份有名字（' + T.me.name + '）');
+  ck(/^#[0-9A-Fa-f]{6}$/.test(T.me.color), '默认身份有合法颜色（' + T.me.color + '）');
+
+  /* ---------- B. 点自己的头像打开身份弹层 ---------- */
+  var avSelf = D.querySelector('#presence .av[data-me]');
+  ck(!!avSelf, '在线成员里的自己头像带 data-me（可点击）');
+  if(avSelf) avSelf.click();
+  await wait(160);
+  var pop = D.querySelector('#profPop');
+  ck(!!pop && pop.style.display === 'block', '点头像打开身份弹层');
+  ck(D.activeElement && D.activeElement.id === 'ppName', '弹层自动聚焦名字输入框');
+  var inp = pop.querySelector('#ppName');
+  ck(inp.value === T.me.name, '输入框预填当前名字');
+
+  /* ---------- C. 改名并生效 ---------- */
+  inp.value = '柯哒';
+  pop.querySelector('#ppSave').click();
+  await wait(200);
+  ck(T.me.name === '柯哒', '保存后 me.name 已更新');
+  ck(pop.style.display === 'none', '保存后弹层关闭');
+  ck(D.querySelector('#presence .av[data-me]').textContent.indexOf('哒') >= 0, '顶栏头像字改为新名字');
+  ck(D.querySelector('#peerList').textContent.indexOf('柯哒') >= 0, '协作面板显示新名字');
+  var saved = {};
+  try{ saved = JSON.parse(W.localStorage.getItem('wb.profile') || '{}'); }catch(e){}
+  ck(saved.name === '柯哒', '名字已写入 localStorage');
+
+  /* ---------- D. 名字清洗 ---------- */
+  T.applyMyProfile('  <b>阿\u0007  哲</b>  ', null);
+  await wait(120);
+  ck(T.me.name === '<b>阿 哲</b>', '控制字符剔除、连续空白压缩（' + T.me.name + '）');
+  ck(!D.querySelector('#presence b'), '名字里的 HTML 被转义，未注入元素');
+
+  var longName = '一二三四五六七八九十一二三四五六七八';
+  T.applyMyProfile(longName, null);
+  await wait(80);
+  ck(Array.from(T.me.name).length === 16, '超长名字按码位截断到 16 字（' + Array.from(T.me.name).length + '）');
+
+  var keep = T.me.name;
+  T.applyMyProfile('  ', null);
+  await wait(80);
+  ck(T.me.name === keep, '纯空白名字被拒绝，身份不变');
+
+  /* ---------- E. 弹层内空名不提交 ---------- */
+  T.openProfile();
+  await wait(120);
+  var inp2 = D.querySelector('#ppName');
+  inp2.value = '   ';
+  D.querySelector('#ppSave').click();
+  await wait(150);
+  ck(T.me.name === keep, '弹层里提交空名被拒绝');
+  ck(pop.style.display === 'block', '空名时弹层保持打开，等用户重填');
+  T.closeProfPop();
+  await wait(80);
+
+  /* ---------- F. 颜色 ---------- */
+  var other = T.me.color === '#2E7D6B' ? '#7C5CBF' : '#2E7D6B';
+  T.applyMyProfile('柯哒', other);
+  await wait(120);
+  ck(T.me.color === other, '切换头像 / 光标颜色生效（' + T.me.color + '）');
+  var sw = D.querySelector('#presence .av[data-me]');
+  ck(sw && sw.style.getPropertyValue('--c').toLowerCase() === other.toLowerCase(), '头像立即用新颜色渲染');
+
+  /* ---------- G. 协作者实时看到改名 ---------- */
+  T.handleMsg({ t:'cur', from:'peer-test', x:10, y:10, name:'旧名', color:'#0F7EA0' });
+  await wait(120);
+  ck(!!T.peers.get('peer-test'), '远端成员已建档');
+  T.handleMsg({ t:'who', from:'peer-test', name:'新名', color:'#C2185B' });
+  await wait(120);
+  ck(T.peers.get('peer-test').name === '新名', '收到 who 后成员名字更新');
+  ck(T.peers.get('peer-test').color === '#C2185B', '收到 who 后成员颜色更新');
+  ck(D.querySelector('#peerList').textContent.indexOf('新名') >= 0, '成员列表即时刷新');
+
+  T.handleMsg({ t:'who', from:'ghost-1', name:'幽灵', color:'#111111' });
+  await wait(80);
+  ck(!T.peers.get('ghost-1'), '陌生身份的 who 不凭空建档');
+
+  /* ---------- H. 刷新后身份仍在 ---------- */
+  fa.src = '../.tmp/app.html?r=' + Date.now();
+  var ok2 = await until(function(){
+    var w = fa.contentWindow;
+    return w && w.__T && w.__T.me && w.__T.me.name === '柯哒' && w.__T.me.color === other;
+  }, 20000);
+  ck(ok2, '重新加载后名字与颜色都保留（localStorage 生效）');
+
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+ P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+ P('PROBE_END');
+})();
+</script>

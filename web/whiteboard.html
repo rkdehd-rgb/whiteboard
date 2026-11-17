@@ -116,6 +116,31 @@ svg{display:block}
 .av.more{background:#333842;color:#C7CDD9;font-size:10.5px}
 .av .self{position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:50%;
   background:#4ADE80;border:2px solid var(--ink-900)}
+.av.mine{cursor:pointer}
+.av.mine:focus-visible{outline:2px solid #E8834F;outline-offset:2px}
+
+/* 我的身份（自定义名称 / 颜色） */
+.prof-pop{position:fixed;z-index:1400;width:272px;background:#fff;border:1px solid #E3E2DD;
+  border-radius:14px;box-shadow:0 18px 48px rgba(16,18,24,.18);padding:14px;
+  font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;color:#1B1D22}
+.prof-pop .pp-hd{font-size:11.5px;color:#8A90A0;margin-bottom:10px}
+.prof-pop .pp-row{display:flex;align-items:center;gap:10px}
+.prof-pop .pp-av{width:34px;height:34px;margin:0;border-width:0;font-size:13px;flex:0 0 auto}
+.prof-pop input{flex:1;min-width:0;height:34px;border-radius:9px;border:1px solid #DEDCD5;background:#FBFBF9;
+  padding:0 10px;font-size:13px;font-family:inherit;color:#1B1D22;outline:none}
+.prof-pop input:focus{border-color:#E8834F;background:#fff;box-shadow:0 0 0 3px rgba(232,131,79,.15)}
+.prof-pop .pp-lb{font-size:11px;color:#8A90A0;margin:12px 0 7px}
+.prof-pop .pp-colors{display:flex;gap:9px}
+.prof-pop .pp-c{width:22px;height:22px;padding:0;border-radius:50%;border:2px solid #fff;cursor:pointer;
+  box-shadow:0 0 0 1px #E3E2DD}
+.prof-pop .pp-c.on{box-shadow:0 0 0 2px #1B1D22}
+.prof-pop .pp-act{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.prof-pop .pp-bt{height:32px;padding:0 14px;border-radius:9px;border:1px solid #E3E2DD;background:#fff;
+  font-size:12.5px;font-family:inherit;color:#3B4250;cursor:pointer}
+.prof-pop .pp-bt:hover{background:#F5F4F0}
+.prof-pop .pp-bt.primary{background:#E8834F;border-color:transparent;color:#fff;font-weight:600}
+.prof-pop .pp-bt.primary:hover{background:#D9743F}
+.prof-pop .pp-tip{font-size:11px;color:#8A90A0;margin-top:10px;line-height:1.5}
 
 .pill{
   height:32px;padding:0 12px;border-radius:9px;display:flex;align-items:center;gap:7px;
@@ -289,6 +314,10 @@ svg{display:block}
 .sheet .peer{display:flex;align-items:center;gap:9px;padding:6px 4px;border-radius:8px;font-size:12.5px}
 .sheet .peer .av{width:24px;height:24px;margin:0;border-width:0;font-size:10.5px}
 .sheet .peer .tag{margin-left:auto;font-size:10.5px;color:var(--ui-3)}
+.sheet .peer .rn{margin-left:auto;padding:2px 8px;border-radius:7px;border:1px solid #F0DED5;
+  background:#FBF1EC;color:var(--accent);font-size:11px;font-family:inherit;cursor:pointer;white-space:nowrap}
+.sheet .peer .rn:hover{background:#F7E4D9}
+.sheet .peer .rn + .tag{margin-left:4px}
 .sheet .row{display:flex;gap:6px}
 .sheet input[type=text]{
   flex:1;height:34px;border-radius:9px;border:1px solid var(--hair);background:#FBFBF9;
@@ -812,6 +841,7 @@ const NOTE_COLORS = ['#FFE7A3','#BFE3C6','#AFD5F2','#F8BCC8','#D9C6F2','#FFCFA8'
 const INK_COLORS  = ['#1B1D22','#D96A3C','#2E7D6B','#2F5FB3','#B23A48','#C98A16'];
 const PEER_COLORS = ['#2E7D6B','#7C5CBF','#C2185B','#0F7EA0','#B45309','#4D5D8C'];
 const NAMES = ['林岚','陈默','Yuki','Devin','周未','阿哲','Mira','苏木'];
+const NAME_MAX = 16;          // 自定义用户名最大字符数（按码位）
 
 const NOTE_W = 172, NOTE_H = 132;
 const MIN_W = 90, MIN_H = 70;
@@ -4127,6 +4157,12 @@ document.addEventListener('keydown', e=>{
     if(e.key === 'Escape'){ e.preventDefault(); endEdit(); }
     return;
   }
+  // 焦点在输入框里（改名 / 中继地址）时，单键快捷键不应生效
+  const ae = document.activeElement;
+  if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')){
+    if(e.key === 'Escape') ae.blur();
+    return;
+  }
   const meta = e.metaKey || e.ctrlKey;
   const k = e.key.toLowerCase();
   if(meta){
@@ -4355,8 +4391,17 @@ try{
   me = JSON.parse(sessionStorage.getItem('wb.me') || 'null');
 }catch(err){ me = null; }
 if(!me || typeof me !== 'object') me = {};
-if(!me.name)  me.name  = NAMES[Math.floor(Math.random()*NAMES.length)];
-if(!me.color) me.color = PEER_COLORS[Math.floor(Math.random()*PEER_COLORS.length)];
+/* 「我是谁」优先取 localStorage：换标签页、隔天再打开都还是同一个名字。
+   sessionStorage 里的 wb.me 只做兜底（老版本随机身份 + 本窗口 id）。 */
+let myProfile = null;
+try{ myProfile = JSON.parse(localStorage.getItem('wb.profile') || 'null'); }catch(err){ myProfile = null; }
+if(myProfile && typeof myProfile === 'object'){
+  const pn = cleanName(myProfile.name), pc = colorOr(myProfile.color);
+  if(pn) me.name = pn;
+  if(pc && pc !== 'none') me.color = pc;
+}
+me.name = cleanName(me.name) || NAMES[Math.floor(Math.random()*NAMES.length)];
+if(!colorOr(me.color) || me.color === 'none') me.color = PEER_COLORS[Math.floor(Math.random()*PEER_COLORS.length)];
 /* 窗口实例标识必须每次加载唯一：sessionStorage 会被「复制标签页 / 新窗口 / 会话恢复」整份继承，
    若沿用旧 id，两个窗口会把自己和对方识别成同一来源，远端操作会被当成自己发的而丢弃。 */
 me.id = uid();
@@ -4465,6 +4510,18 @@ function handleMsgInner(m){
       requestDraw(); saveSoon();
       break;
     }
+    case 'who': {
+      // 对方改了名字 / 颜色：只更新已有成员，陌生身份等它下一次 cur / hello 再建档
+      const pid = safeId(m.from); if(!pid) break;
+      const p = peers.get(pid); if(!p) break;
+      const nm = textOr(m.name, 24) || '';
+      const c0 = colorOr(m.color);
+      let changed = false;
+      if(nm && nm !== p.name){ p.name = nm; changed = true; }
+      if(c0 && c0 !== 'none' && c0 !== p.color){ p.color = c0; changed = true; }
+      if(changed){ renderPresence(); drawOverlay(); }
+      break;
+    }
     case 'leave': {
       const p = peers.get(m.id);
       if(p){ peers.delete(m.id); renderPresence(); drawInk(); drawOverlay(); }
@@ -4528,7 +4585,8 @@ function renderPresence(){
   const show = list.slice(0, max);
   const rest = list.length - show.length;
   let html = show.map(p=>
-    '<div class="av" style="--c:'+peerColor(p.color)+'" title="'+esc(p.name)+(p.self?'（你）':'')+'">'+
+    '<div class="av'+(p.self?' mine':'')+'"'+(p.self?' data-me="1" role="button" tabindex="0"':'')+
+    ' style="--c:'+peerColor(p.color)+'" title="'+esc(p.name)+(p.self?'（你）· 点击修改名字':'')+'">'+
     esc(initials(p.name))+(p.self?'<span class="self"></span>':'')+'</div>'
   ).join('');
   if(rest>0) html += '<div class="av more">+'+rest+'</div>';
@@ -4539,6 +4597,7 @@ function renderPresence(){
   $('#peerList').innerHTML = list.map(p=>
     '<div class="peer"><div class="av" style="--c:'+peerColor(p.color)+'">'+esc(initials(p.name))+'</div>'+
     '<span>'+esc(p.name)+(p.self?'（你）':'')+'</span>'+
+    (p.self?'<button class="rn" data-rename="1" title="修改我的名字与颜色">改名</button>':'')+
     '<span class="tag">'+(p.self?'本机':'在线')+'</span></div>'
   ).join('');
 
@@ -4548,9 +4607,151 @@ function renderPresence(){
   $('#shareBtn').title = label;
 }
 
+/* --- 我的身份：自定义名称 / 颜色 --- */
+const PROFILE_KEY = 'wb.profile';
+let profPop = null, profColor = null;
+
+/* 名字只允许可打印字符：去控制符、压空白、按码位截断（不切开 emoji 的代理对） */
+function cleanName(v){
+  if(typeof v !== 'string') return '';
+  let s = '';
+  for(const ch of v){
+    const c = ch.codePointAt(0);
+    if(c < 32 || c === 127) continue;                 // 控制字符
+    s += ch;
+  }
+  s = s.replace(/\s+/g, ' ').trim();
+  const arr = Array.from(s);
+  return arr.length > NAME_MAX ? arr.slice(0, NAME_MAX).join('') : s;
+}
+
+function persistProfile(){
+  try{ localStorage.setItem(PROFILE_KEY, JSON.stringify({ name:me.name, color:me.color })); }catch(err){}
+  try{ sessionStorage.setItem('wb.me', JSON.stringify(me)); }catch(err){}
+}
+
+/* 应用身份：先落盘再广播，广播走 who（不动远端光标坐标） */
+function applyMyProfile(name, color){
+  const nm = cleanName(name);
+  if(!nm) return false;
+  const c0 = colorOr(color);
+  const cl = (c0 && c0 !== 'none') ? c0 : me.color;
+  const changed = (nm !== me.name) || (cl !== me.color);
+  me.name = nm; me.color = cl;
+  persistProfile();
+  renderPresence();
+  drawOverlay();
+  if(changed) netSend({ t:'who', name:me.name, color:me.color });
+  return true;
+}
+
+function ensureProfPop(){
+  if(profPop) return;
+  profPop = document.createElement('div');
+  profPop.id = 'profPop';
+  profPop.className = 'prof-pop';
+  profPop.style.display = 'none';
+  profPop.setAttribute('role', 'dialog');
+  profPop.setAttribute('aria-label', '我的身份');
+  profPop.innerHTML =
+    '<div class="pp-hd">我的身份</div>'+
+    '<div class="pp-row"><div class="av pp-av" id="ppAv"></div>'+
+    '<input id="ppName" type="text" maxlength="16" placeholder="输入你的名字" spellcheck="false" aria-label="我的名字"></div>'+
+    '<div class="pp-lb">头像与光标颜色</div>'+
+    '<div class="pp-colors" id="ppColors">'+
+      PEER_COLORS.map(c=>'<button type="button" class="pp-c" data-c="'+c+'" style="background:'+c+'" aria-label="颜色 '+c+'"></button>').join('')+
+    '</div>'+
+    '<div class="pp-act"><button type="button" class="pp-bt" id="ppCancel">取消</button>'+
+    '<button type="button" class="pp-bt primary" id="ppSave">保存</button></div>'+
+    '<div class="pp-tip">名字与颜色存在本机浏览器，协作成员会立即看到更新。</div>';
+  document.body.appendChild(profPop);
+
+  profPop.addEventListener('click', function(e){
+    const c = e.target.closest('[data-c]');
+    if(c){ profColor = c.dataset.c; paintProfColors(); return; }
+    if(e.target.closest('#ppCancel')){ closeProfPop(); return; }
+    if(e.target.closest('#ppSave')){ submitProfile(); return; }
+  });
+
+  const inp = profPop.querySelector('#ppName');
+  inp.addEventListener('keydown', function(e){
+    e.stopPropagation();                       // 别触发画布的 V / N / T 等单键快捷键
+    if(e.key === 'Enter'){ e.preventDefault(); submitProfile(); }
+    else if(e.key === 'Escape'){ e.preventDefault(); closeProfPop(); }
+  });
+  inp.addEventListener('input', paintProfColors);
+
+  // 点到外面关闭（点到成员头像交给它自己的开关，避免开了立刻被关）
+  document.addEventListener('pointerdown', function(e){
+    if(profPop.style.display !== 'block') return;
+    if(profPop.contains(e.target)) return;
+    if(e.target.closest && e.target.closest('#presence')) return;
+    closeProfPop();
+  }, true);
+}
+
+function paintProfColors(){
+  if(!profPop) return;
+  const inp = profPop.querySelector('#ppName');
+  const av = profPop.querySelector('#ppAv');
+  if(av){
+    const nm = cleanName(inp.value) || me.name;
+    av.textContent = initials(nm);
+    av.style.setProperty('--c', peerColor(profColor || me.color));
+  }
+  const box = profPop.querySelector('#ppColors');
+  if(box) for(const b of box.children) b.classList.toggle('on', b.dataset.c === profColor);
+}
+
+function renderProfPop(){
+  if(!profPop) return;
+  profColor = peerColor(me.color);
+  profPop.querySelector('#ppName').value = me.name;
+  paintProfColors();
+}
+
+function openProfile(){
+  ensureProfPop();
+  renderProfPop();
+  const r = $('#presence').getBoundingClientRect();
+  const w = 272;
+  profPop.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+  profPop.style.top = Math.max(56, Math.min(r.bottom + 10, window.innerHeight - 300)) + 'px';
+  profPop.style.display = 'block';
+  const inp = profPop.querySelector('#ppName');
+  setTimeout(function(){ try{ inp.focus(); inp.select(); }catch(err){} }, 0);
+}
+function closeProfPop(){ if(profPop) profPop.style.display = 'none'; }
+function toggleProfPop(){
+  if(profPop && profPop.style.display === 'block') closeProfPop();
+  else openProfile();
+}
+function submitProfile(){
+  const inp = profPop.querySelector('#ppName');
+  const nm = cleanName(inp.value);
+  if(!nm){ inp.value = me.name; toast('名字不能为空'); return; }
+  const had = me.name;
+  applyMyProfile(nm, profColor);
+  closeProfPop();
+  if(nm !== had) toast('已更新我的名字：' + nm);
+}
+
 function toastJoin(p){
   toast(p.name + ' 加入了白板', p);
 }
+/* 入口：点自己的头像 / 协作面板里的「改名」 */
+$('#presence').addEventListener('click', e=>{
+  if(e.target.closest('[data-me]')){ e.preventDefault(); toggleProfPop(); }
+});
+$('#presence').addEventListener('keydown', e=>{
+  const t = e.target;
+  if(t && t.getAttribute && t.getAttribute('data-me') && (e.key === 'Enter' || e.key === ' ')){
+    e.preventDefault(); e.stopPropagation(); toggleProfPop();
+  }
+});
+$('#peerList').addEventListener('click', e=>{
+  if(e.target.closest('[data-rename]')){ e.preventDefault(); openProfile(); }
+});
 function toast(msg, p){
   const el = document.createElement('div');
   el.className = 'toast';
