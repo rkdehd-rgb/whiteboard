@@ -47,7 +47,6 @@ const SPECS = [
   { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' },
   { name: 'pinch', file: 'specs/pinch.spec.html', desc: '手机端双指缩放' },
   { name: 'shape', file: 'specs/shape.spec.html', desc: '图形拖拽创建' },
-  { name: 'font', file: 'specs/font.spec.html', desc: '字体切换与内置字体加载' },
   { name: 'profile', file: 'specs/profile.spec.html', desc: '自定义用户名与协作同步' }
 ];
 
@@ -62,11 +61,9 @@ window.__T = {
   renderEdges, drawBoard, drawInk, drawOverlay,
   get tool(){ return tool; },
   drag, ptrs, pinch, setTool,
-  applyFont, fontCss, fontName,
   applyMyProfile, cleanName, openProfile, closeProfPop, submitProfile, renderPresence,
   get PROFILE_KEY(){ return PROFILE_KEY; },
   get profPop(){ return profPop; },
-  get curFont(){ return curFont; }, get FONT_PRESETS(){ return FONT_PRESETS; },
   get pinchLatch(){ return pinchLatch; },
   get guides(){ return guides; },
   get ROOM(){ return ROOM; },
