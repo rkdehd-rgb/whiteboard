@@ -45,10 +45,20 @@ async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ i
   function shapes(){ return Object.keys(T.doc.shapes).map(function(id){ return T.doc.shapes[id]; }); }
   function last(){ var a = shapes(); return a[a.length-1]; }
 
+  // 示例内容在进页面 320ms 后才播种，先等它落完再清，避免吸附到示例便签
+  await wait(700);
+  T.doOps([{ k:'clear' }]);
+  await wait(200);
+  // 示例内容在进页面 320ms 后才播种，先等它落完再清，避免吸附到示例便签
+  await wait(700);
+  T.doOps([{ k:'clear' }]);
+  await wait(200);
   T.doOps([{ k:'clear' }]);
   T.setTool('shape');
   resetView();
   await wait(250);
+  ck(Object.keys(T.doc.notes).length === 0 && shapes().length === 0, '测试环境已清空（示例内容不干扰吸附）');
+  ck(Object.keys(T.doc.notes).length === 0 && shapes().length === 0, '测试环境已清空（示例内容不干扰吸附）');
 
   /* ---------- A. 按下不落图形 ---------- */
   chip('rect');
@@ -75,6 +85,7 @@ async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ i
   ck([...T.sel][0] === 'sh:' + s1.id, '创建后自动选中该图形');
 
   /* ---------- D. 反向拖动（从右下往左上） ---------- */
+  P('  D 段前: notes=' + Object.keys(T.doc.notes).length + ' shapes=' + JSON.stringify(shapes().map(function(s){ return [s.x, s.y, s.w, s.h]; })) + ' frames=' + Object.keys(T.doc.frames).length + ' texts=' + Object.keys(T.doc.texts).length);
   T.setTool('shape'); chip('rect');
   down(700, 600); move(500, 450); up(500, 450);
   await wait(220);
@@ -124,7 +135,56 @@ async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ i
   await wait(150);
   ck(shapes().length === n1, '选择工具下拖拽不会创建图形');
 
- }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+
+  /* ---------- J. 非线形最小尺寸 ---------- */
+  T.doOps([{ k:'clear' }]); await wait(250);
+  T.setTool('shape'); chip('rect');
+  down(200, 200); move(203, 500); up(203, 500);
+  await wait(220);
+  var sJ = last();
+  ck(sJ.w === 8 && sJ.h === 300, '拖出 3px 宽也被抬到最小 8px（' + sJ.w + '×' + sJ.h + '）');
+
+  /* ---------- K. Esc 取消 ---------- */
+  T.setTool('shape'); chip('rect');
+  var nK = shapes().length;
+  down(300, 300); move(500, 400);
+  await wait(80);
+  W.document.body.dispatchEvent(new W.KeyboardEvent('keydown', { key:'Escape', bubbles:true }));
+  await wait(100);
+  ck(T.drag.kind === null && !T.drag.preview, 'Esc 后退出拖拽态并清掉预览');
+  up(500, 400);
+  await wait(220);
+  ck(shapes().length === nK, 'Esc 取消后松开鼠标不会创建图形（仍为 ' + shapes().length + ' 个）');
+
+  /* ---------- L. 松开坐标重算 ---------- */
+  T.setTool('shape'); chip('rect');
+  var nL = shapes().length;
+  down(100, 100); move(200, 200); up(400, 400);   // 最后一次 move 与抬起点不同
+  await wait(220);
+  var sL = last();
+  ck(shapes().length === nL + 1 && sL.w === 300 && sL.h === 300,
+     '松开时用 pointerup 坐标（300×300，而非最后一次 move 的 100×100）');
+
+  /* ---------- M. 拖动吸附 ---------- */
+  T.doOps([{ k:'clear' }]); await wait(250);
+  var ref = T.addNote(600, 300, { text:'ref' });     // 便签以中心定位 → 左边 514
+  await wait(200);
+  var refL = T.doc.notes[ref.id].x;
+  T.setTool('shape'); chip('rect');
+  down(200, 200); move(refL + 2, 420);              // 终点距参考左边 2px
+  await wait(100);
+  ck(T.guides && T.guides.length >= 1, '拖动时出现吸附参考线');
+  ck(T.drag.preview && Math.abs((T.drag.preview.x + T.drag.preview.w) - refL) < 0.6,
+     '终点边吸附到参考元素左边（' + (T.drag.preview ? T.drag.preview.x + T.drag.preview.w : '—') + ' vs ' + refL + '）');
+  up(refL + 2, 420);
+  await wait(220);
+  var sM = last();
+  ck(Math.abs((sM.x + sM.w) - refL) <= 1,
+     '松手后仍保持吸附（右边缘 ' + (sM.x + sM.w) + ' vs 参考 ' + refL + '）');
+  ck(sM.x === 200, '起点没有跟着漂移（x=' + sM.x + '）');
+
+ 
+  }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
  P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
  P('PROBE_END');
 })();

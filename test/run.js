@@ -61,6 +61,7 @@ window.__T = {
   get tool(){ return tool; },
   drag, ptrs, pinch, setTool,
   get pinchLatch(){ return pinchLatch; },
+  get guides(){ return guides; },
   get ROOM(){ return ROOM; },
   get me(){ return me; },
   get peers(){ return peers; },

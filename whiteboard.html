@@ -1516,15 +1516,17 @@ function addShape(wx, wy, kind, rect){
   const ds = shapeDefSize(kind);
   let x, y, w, h;
   if(rect){
-    /* 拖拽创建：以拖出的矩形为准 */
-    w = Math.max(1, Math.round(rect.w));
-    h = Math.max(1, Math.round(rect.h));
+    /* 拖拽创建：以拖出的矩形为准，但最小 8×8 —— 再细就点不中、手柄也挤在一起 */
+    const rw = Math.max(1, Math.round(rect.w));
+    const rh = Math.max(1, Math.round(rect.h));
+    w = Math.max(8, rw);
+    h = Math.max(8, rh);
     x = Math.round(rect.x);
     y = Math.round(rect.y);
     if(kind === 'line' || kind === 'arrow'){
-      // 拖得很平时给一个可见厚度（与缩放手柄的最小高度一致），并保持视觉居中
-      if(h < 8){ y = Math.round(rect.y + rect.h/2 - 4); h = 8; }
-      if(w < 8){ x = Math.round(rect.x + rect.w/2 - 4); w = 8; }
+      // 线/箭头拖得很平时保持视觉居中（按原始拖拽厚度判断，而不是夹取后的值）
+      if(rh < 8){ y = Math.round(rect.y + rect.h/2 - 4); h = 8; }
+      if(rw < 8){ x = Math.round(rect.x + rect.w/2 - 4); w = 8; }
     }
   } else {
     /* 单击：默认尺寸，以按下点为中心 */
@@ -1984,6 +1986,24 @@ function computeSnap(rect, exId){
   if(mx !== null && mdx <= TH){ dx = mtx - mx; lines.push({ type:'v', pos:mtx }); }
   if(my !== null && mdy <= TH){ dy = mty - my; lines.push({ type:'h', pos:mty }); }
   return { dx, dy, lines };
+}
+/* 单个角的吸附：在所有元素的左/中/右、上/中/下里找最近的边，只动终点、不动起点 */
+function snapCorner(x, y){
+  const TH = 6/view.z;
+  const tg = snapTargets(null);
+  let bx = null, bxd = TH + 1;
+  let by = null, byd = TH + 1;
+  for(const t of tg){
+    const xs = [t.x, t.x + t.w/2, t.x + t.w];
+    const ys = [t.y, t.y + t.h/2, t.y + t.h];
+    for(const v of xs){ const d = Math.abs(x - v); if(d < bxd){ bxd = d; bx = v; } }
+    for(const v of ys){ const d = Math.abs(y - v); if(d < byd){ byd = d; by = v; } }
+  }
+  const lines = [];
+  let nx = x, ny = y;
+  if(bx !== null && bxd <= TH){ nx = bx; lines.push({ type:'v', pos:bx }); }
+  if(by !== null && byd <= TH){ ny = by; lines.push({ type:'h', pos:by }); }
+  return { x:nx, y:ny, lines };
 }
 function drawGuides(ctx){
   if(!guides || !guides.length) return;
@@ -3271,10 +3291,16 @@ function onMove(e){
   switch(drag.kind){
     case 'shapeDraw': {
       let x0 = drag.sx, y0 = drag.sy, x1 = w.x, y1 = w.y;
-      if(e.shiftKey){                       // 按住 Shift 约束为正方形
+      if(e.shiftKey){                       // 按住 Shift 约束为正方形（此时不做吸附，否则会被拉歪）
         const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
         x1 = x0 + (x1 >= x0 ? s : -s);
         y1 = y0 + (y1 >= y0 ? s : -s);
+        guides = [];
+      } else {
+        // 只吸附被拖动的那条边，起点固定不动
+        const sn = snapCorner(x1, y1);
+        x1 = sn.x; y1 = sn.y;
+        guides = sn.lines;
       }
       drag.preview = { x:Math.min(x0, x1), y:Math.min(y0, y1), w:Math.abs(x1 - x0), h:Math.abs(y1 - y0) };
       drawOverlay();
@@ -3449,13 +3475,33 @@ function onUp(e){
   if(ptrs.size === 0) pinchLatch = false;
 
   if(drag.kind === 'shapeDraw'){
-    const pv = drag.preview;
-    const kind = drag.sk || shapeKind;
-    // 有实际拖动才按矩形创建；只是点一下则回退默认尺寸
-    const dragged = !!(pv && Math.max(pv.w, pv.h) >= 8);
-    const made = dragged ? addShape(0, 0, kind, pv) : addShape(drag.sx, drag.sy, kind);
-    if(made){ sel.clear(); sel.add('sh:'+made.id); }
-    drag.preview = null;
+    if(e.type === 'pointercancel'){
+      // 手势被系统接管（来电、系统手势等）：不落图形
+      drag.preview = null;
+    } else {
+      // 用抬起时的坐标重算：快速拖拽时浏览器未必补发最后一次 pointermove
+      let pv = drag.preview;
+      if(Number.isFinite(e.clientX) && Number.isFinite(e.clientY)){
+        const pp = localPt(e), we = toWorld(pp.x, pp.y);
+        let x0 = drag.sx, y0 = drag.sy, x1 = we.x, y1 = we.y;
+        if(e.shiftKey){
+          const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+          x1 = x0 + (x1 >= x0 ? s : -s);
+          y1 = y0 + (y1 >= y0 ? s : -s);
+        } else {
+          // 与拖动过程一致：松手也用同一套吸附，否则会出现"预览吸住了、松手却偏了"
+          const sn = snapCorner(x1, y1);
+          x1 = sn.x; y1 = sn.y;
+        }
+        pv = { x:Math.min(x0, x1), y:Math.min(y0, y1), w:Math.abs(x1 - x0), h:Math.abs(y1 - y0) };
+      }
+      const kind = drag.sk || shapeKind;
+      // 有实际拖动才按矩形创建；只是点一下则回退默认尺寸
+      const dragged = !!(pv && Math.max(pv.w, pv.h) >= 8);
+      const made = dragged ? addShape(0, 0, kind, pv) : addShape(drag.sx, drag.sy, kind);
+      if(made){ sel.clear(); sel.add('sh:'+made.id); }
+      drag.preview = null;
+    }
   }
   if(drag.kind === 'pan'){
     vp.style.cursor = tool==='pan' ? 'grab' : 'default';
@@ -3788,6 +3834,12 @@ const menuHandlers = {
    16. 快捷键
 ================================================================== */
 document.addEventListener('keydown', e=>{
+  // 拖拽建图中按 Esc：取消，不创建（必须在 editingId 判断之前，否则拖拽时不会走到）
+  if(e.key === 'Escape' && drag.kind === 'shapeDraw'){
+    e.preventDefault();
+    drag.kind = null; drag.preview = null; guides = []; drawOverlay();
+    return;
+  }
   if(editingId){
     if(e.key === 'Escape'){ e.preventDefault(); endEdit(); }
     return;
