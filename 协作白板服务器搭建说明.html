@@ -1,15 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>协作白板服务器搭建说明</title>
-<style>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>协作白板服务器搭建说明</title><style>
 @page { size: A4; margin: 17mm 14mm 15mm; }
 * { box-sizing: border-box; }
-body {
-  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
-  font-size: 9.6pt; line-height: 1.75; color: #1b1d22;
-}
+body { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+       font-size: 9.6pt; line-height: 1.78; color: #1b1d22; }
 h1 { page-break-before: always; page-break-after: avoid;
      font-size: 15pt; font-weight: 600; color: #1a3a5c;
      border-bottom: 1px solid #d8dee7; padding-bottom: 4pt; margin: 0 0 8pt; }
@@ -20,16 +14,16 @@ p  { margin: 0 0 6pt; }
 ul, ol { margin: 0 0 7pt; padding-left: 15pt; }
 li { margin-bottom: 3pt; }
 strong { font-weight: 600; }
-code { font-family: Consolas, "Courier New", monospace; font-size: 8.6pt;
+code { font-family: Consolas, "Courier New", monospace; font-size: 8.5pt;
        background: #f2f4f7; padding: 0.5pt 3pt; border-radius: 2pt; }
 pre { background: #f6f7f9; border: 1px solid #e3e6ea; border-radius: 4pt;
       padding: 7pt 9pt; margin: 0 0 9pt; page-break-inside: avoid;
       white-space: pre-wrap; word-break: break-all; }
-pre code { background: none; padding: 0; font-size: 8.4pt; }
+pre code { background: none; padding: 0; font-size: 8.3pt; }
 blockquote { page-break-inside: avoid; margin: 0 0 9pt; padding: 6pt 10pt;
              background: #f4f7fa; border-left: 2.5pt solid #7f9ec2; color: #33465f; }
 blockquote p { margin: 0; }
-table { width: 100%; border-collapse: collapse; font-size: 8.4pt;
+table { width: 100%; border-collapse: collapse; font-size: 8.3pt;
         page-break-inside: auto; margin: 0 0 10pt; }
 thead { display: table-header-group; }
 th { background: #eef2f7; font-weight: 600; text-align: left; }
@@ -37,22 +31,20 @@ th, td { border: 0.5pt solid #cbd3dd; padding: 3.5pt 5pt; vertical-align: top; }
 tr { page-break-inside: avoid; }
 hr { border: 0; border-top: 0.5pt solid #dde2e8; margin: 10pt 0; }
 a { color: #1a5fb4; text-decoration: none; }
-
+details { margin: 0 0 8pt; }
+summary { color: #1a5fb4; cursor: default; }
 .cover { page-break-after: always; page-break-inside: avoid;
          border: 1.2pt solid #1a3a5c; padding: 34mm 16mm 30mm; text-align: center; }
 .cover h1 { page-break-before: avoid; page-break-after: avoid;
-            border: 0; font-size: 24pt; font-weight: 600; color: #1a3a5c;
+            border: 0; font-size: 23pt; font-weight: 600; color: #1a3a5c;
             margin: 0 0 10pt; padding: 0; }
-.cover .sub { font-size: 11pt; color: #4a5568; line-height: 1.9; }
-.cover .tag { margin-top: 16mm; font-size: 9pt; color: #8a90a0; }
-</style>
-</head>
+.cover .sub { font-size: 10.5pt; color: #4a5568; line-height: 1.95; }
+.cover .tag { margin-top: 16mm; font-size: 9pt; color: #8a90a0; line-height: 1.8; }
+</style></head>
 <body>
-<div class="cover">
-  <h1>协作白板服务器搭建说明</h1>
-  <div class="sub">零基础可照做 · 局域网多人实时协作 · 内容自动保存在本机</div>
-  <div class="tag">配套文件：whiteboard.html · relay-server.js · 启动中继.bat</div>
-</div>
+<div class="cover"><h1>协作白板服务器搭建说明</h1>
+<div class="sub">零基础可照做 · 局域网多人实时协作 · 内容自动保存在本机</div>
+<div class="tag">M²Studio 协作白板 · 长期团队协作部署</div></div>
 <blockquote>
 <p>面向零基础用户。照着做即可，不需要懂编程。<br />
 做完以后：一台电脑开着，同一 Wi-Fi 下的同事或手机打开一个网址，就能一起在一块白板上画便签、连线、贴图；内容自动存在这台电脑上，关机重启后还在。</p>
@@ -139,7 +131,7 @@ a { color: #1a5fb4; text-decoration: none; }
 <pre><code>http://192.168.31.8:8787/#room=产品评审
 http://192.168.31.8:8787/#room=周会
 </code></pre>
-<p>房间名可以用中文，也可以写英文。把这个带 <code>#room=</code> 的完整网址发给对应的人，他们就会进到各自的房间，<strong>互相看不到、互不干扰</strong>。</p>
+<p>房间号只能用<strong>字母、数字、下划线、点、横线</strong>（1–64 个字符），建议写英文或拼音，例如 <code>#room=a1</code>。中文房间号会被中继归到公共房间，导致不同项目的内容混在一起。把这个带 <code>#room=</code> 的完整网址发给对应的人，他们就会进到各自的房间，<strong>互相看不到、互不干扰</strong>。</p>
 <blockquote>
 <p>房间名就是房间的身份标识，别泄露给不相干的人——这个白板没有密码。</p>
 </blockquote>
@@ -239,6 +231,10 @@ Node.js 没装好，或装完没重启。回到第一步重装并重启电脑。
 图片太多太大时会卡。尽量用压缩过的图片，单张控制在几百 KB。</p>
 <hr />
 <h2>九、进阶：让外网的人也能用（可选）</h2>
+<blockquote>
+<p>需要长期给跨地区团队用、想知道买哪台云服务器、怎么配置域名与备份，见同目录的<br />
+<strong>《团队长期协作部署指南》</strong>（<code>团队长期协作部署指南.md/.pdf</code>），那份写得更细，也包含一键部署脚本。</p>
+</blockquote>
 <p>上面全部是<strong>局域网</strong>方案，只在同一个 Wi-Fi 下有效。想让外地同事访问，需要一台有公网 IP 的云服务器，并配置 HTTPS：</p>
 <ol>
 <li>买一台云服务器（各家云厂商的最低配就够），装好 Node.js；</li>
@@ -281,5 +277,4 @@ node relay-server.js --snapmb 8             # 单房间快照体积上限，单�
 <li><strong>内容在 <code>rooms</code> 文件夹</strong>，备份就拷这个文件夹。</li>
 <li><strong>网址后面加 <code>#room=名字</code></strong> 就能开出互不相干的独立白板。</li>
 </ol>
-</body>
-</html>
+</body></html>

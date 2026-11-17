@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>团队长期协作白板 · 购买与部署说明书</title><style>
+@page { size: A4; margin: 17mm 14mm 15mm; }
+* { box-sizing: border-box; }
+body { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+       font-size: 9.6pt; line-height: 1.78; color: #1b1d22; }
+h1 { page-break-before: always; page-break-after: avoid;
+     font-size: 15pt; font-weight: 600; color: #1a3a5c;
+     border-bottom: 1px solid #d8dee7; padding-bottom: 4pt; margin: 0 0 8pt; }
+h2 { page-break-after: avoid; font-size: 12.5pt; font-weight: 600;
+     color: #1a3a5c; margin: 14pt 0 6pt; }
+h3 { page-break-after: avoid; font-size: 10.8pt; font-weight: 600; margin: 11pt 0 5pt; }
+p  { margin: 0 0 6pt; }
+ul, ol { margin: 0 0 7pt; padding-left: 15pt; }
+li { margin-bottom: 3pt; }
+strong { font-weight: 600; }
+code { font-family: Consolas, "Courier New", monospace; font-size: 8.5pt;
+       background: #f2f4f7; padding: 0.5pt 3pt; border-radius: 2pt; }
+pre { background: #f6f7f9; border: 1px solid #e3e6ea; border-radius: 4pt;
+      padding: 7pt 9pt; margin: 0 0 9pt; page-break-inside: avoid;
+      white-space: pre-wrap; word-break: break-all; }
+pre code { background: none; padding: 0; font-size: 8.3pt; }
+blockquote { page-break-inside: avoid; margin: 0 0 9pt; padding: 6pt 10pt;
+             background: #f4f7fa; border-left: 2.5pt solid #7f9ec2; color: #33465f; }
+blockquote p { margin: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 8.3pt;
+        page-break-inside: auto; margin: 0 0 10pt; }
+thead { display: table-header-group; }
+th { background: #eef2f7; font-weight: 600; text-align: left; }
+th, td { border: 0.5pt solid #cbd3dd; padding: 3.5pt 5pt; vertical-align: top; }
+tr { page-break-inside: avoid; }
+hr { border: 0; border-top: 0.5pt solid #dde2e8; margin: 10pt 0; }
+a { color: #1a5fb4; text-decoration: none; }
+details { margin: 0 0 8pt; }
+summary { color: #1a5fb4; cursor: default; }
+.cover { page-break-after: always; page-break-inside: avoid;
+         border: 1.2pt solid #1a3a5c; padding: 34mm 16mm 30mm; text-align: center; }
+.cover h1 { page-break-before: avoid; page-break-after: avoid;
+            border: 0; font-size: 23pt; font-weight: 600; color: #1a3a5c;
+            margin: 0 0 10pt; padding: 0; }
+.cover .sub { font-size: 10.5pt; color: #4a5568; line-height: 1.95; }
+.cover .tag { margin-top: 16mm; font-size: 9pt; color: #8a90a0; line-height: 1.8; }
+</style></head>
+<body>
+<div class="cover"><h1>团队长期协作白板 · 购买与部署说明书</h1>
+<div class="sub">买什么 · 怎么装 · 怎么长期用 · 出问题怎么查</div>
+<div class="tag">M²Studio 协作白板 · 长期团队协作部署</div></div>
+<blockquote>
+<p>面向不懂技术的负责人：照着做，半天内能让 3–5 位分布在各地的同事，长期共用一个白板。<br />
+结论都在这一页，后面是每一步的截图级说明和排错办法。</p>
+</blockquote>
+<hr />
+<h2>一分钟结论</h2>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>答案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>要买什么</td>
+<td><strong>一台最低配云服务器</strong>（轻量应用服务器）。不需要数据库、不需要对象存储、不需要 CDN、不需要买 SSL 证书</td>
+</tr>
+<tr>
+<td>买哪台</td>
+<td>团队里有人在大陆以外，或你想要"免备案、能绑域名"：<strong>阿里云香港轻量 2核2G，约 408 元/年</strong>（一次买 3 年同价）<br>团队全在大陆、想最省：<strong>腾讯云轻量 2核2G 4M，首年约 99 元</strong>（续费会回原价）</td>
+</tr>
+<tr>
+<td>怎么用</td>
+<td>买机器 → 控制台放行 8787 端口 → 在服务器上跑一条部署脚本 → 把网址发给同事</td>
+</tr>
+<tr>
+<td>每年总花费</td>
+<td><strong>300–500 元</strong>（含服务器；域名可选，约 30–80 元/年）</td>
+</tr>
+<tr>
+<td>数据在哪</td>
+<td>服务器 <code>/opt/whiteboard/rooms/*.json</code> + 每台电脑的浏览器缓存。<strong>记得每周导出一份工程文件</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>价格均为 2026 年 11 月各家活动页口径，下单前请以官网结算页为准；云厂商活动价通常只给首单，<strong>续费会回原价</strong>，看到"续费同价"字样再选长周期。</p>
+</blockquote>
+<hr />
+<h2>一、先弄清楚：这套白板到底需要什么</h2>
+<p>这套白板没有后端数据库，整个系统只有两样东西：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>是什么</th>
+<th>部署在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>whiteboard.html</code></td>
+<td>白板页面本身（单个 HTML 文件，约 265KB）</td>
+<td>服务器上，由中继顺带托管</td>
+</tr>
+<tr>
+<td><code>relay-server.js</code></td>
+<td>中继：把一个人的操作转发给其他人，并把房间内容存成 json</td>
+<td>服务器上，一个 Node.js 进程</td>
+</tr>
+<tr>
+<td><code>rooms/</code> 目录</td>
+<td>每个房间一份完整快照</td>
+<td>服务器磁盘</td>
+</tr>
+</tbody>
+</table>
+<p>运行原理，一句话：<strong>所有人的浏览器都连到你这台服务器</strong>，改动由服务器转发；同时每人浏览器里也留一份本地存档（断网还能看、能改，恢复后自动同步）。</p>
+<p>3–5 人的资源消耗参考：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实际占用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内存</td>
+<td>50–150 MB</td>
+<td>1GB 内存的机器都够，2GB 更宽裕</td>
+</tr>
+<tr>
+<td>带宽</td>
+<td>平时几乎为 0；贴图/拖动时几 Mbps</td>
+<td>4M 峰值够用，30M 更稳（跨境尤其）</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>几十 MB 起</td>
+<td>图片多的板子会涨，注意 <code>--snapmb</code> 上限</td>
+</tr>
+<tr>
+<td>并发</td>
+<td>3–5 人</td>
+<td>默认上限 500 连接，完全用不到</td>
+</tr>
+</tbody>
+</table>
+<p><strong>你不需要买的东西</strong>：数据库、云存储、CDN、负载均衡、付费证书、短信服务。域名和 HTTPS 是"可选加分项"，不买也能用。</p>
+<hr />
+<h2>二、三种买法对比</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>配置与价格（2026-11 活动价）</th>
+<th>优点</th>
+<th>缺点</th>
+<th>适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. 阿里云香港轻量</strong>（推荐）</td>
+<td>2核2G / 60GB / 30Mbps / 2TB月流量<br><strong>34 元/月，408 元/年，1224 元/3 年</strong></td>
+<td>免备案；可直接绑域名上 HTTPS；30M 带宽跑图片不难受；大陆访问约 30–60ms</td>
+<td>比大陆节点贵；跨境晚高峰偶有抖动</td>
+<td>跨地区团队、有海外同事、想长期稳定</td>
+</tr>
+<tr>
+<td><strong>B. 腾讯云大陆轻量</strong></td>
+<td>2核2G / 40GB / 4Mbps / 300GB月流量<br><strong>首年 99 元</strong>（原价 576 元/年）<br>2核4G 5M：188 元/年（原价 780）</td>
+<td>便宜、延迟最低（10–30ms）</td>
+<td>用 IP + 端口访问可免备案；<strong>一旦要绑域名就必须备案</strong>（2–3 周）；4M 带宽贴大图偏慢</td>
+<td>全员在大陆、预算优先</td>
+</tr>
+<tr>
+<td><strong>C. 腾讯云境外轻量</strong></td>
+<td>2核4G / 60GB / 30Mbps / 1.5TB月流量<br><strong>199 元/年</strong>（首年，原价 504）</td>
+<td>免备案、带宽大、比香港便宜</td>
+<td>节点在首尔/曼谷/雅加达，大陆访问绕路，延迟 80–150ms</td>
+<td>主要成员在东南亚/东北亚</td>
+</tr>
+<tr>
+<td>D. 现成托管链接</td>
+<td>0 元（本白板已发布在 WorkBuddy 托管）</td>
+<td>一分钟就能用</td>
+<td>容器会随发布/休眠重置，房间内容可能清零；不适合当唯一底账</td>
+<td>试用、临时会议</td>
+</tr>
+</tbody>
+</table>
+<p><strong>推荐组合（3–5 人、跨地区、长期）</strong>：方案 A 的 2核2G，一次买 3 年（408 元/年，等于把新客价锁住）。域名可以以后再补。</p>
+<p><strong>关于备案，一句话说清</strong>：备案是"域名"的许可，不是"服务器"的许可。大陆服务器上用 <code>http://IP:8787</code> 直接访问不需要备案；一旦想用 <code>https://wb.你的域名.com</code>，就必须先备案。香港/境外服务器两种都不需要。</p>
+<hr />
+<h2>三、方案 A：阿里云香港轻量（推荐路径）</h2>
+<h3>3.1 购买（约 10 分钟）</h3>
+<ol>
+<li>打开 <a href="https://www.aliyun.com">https://www.aliyun.com</a>，注册账号并完成<strong>实名认证</strong>（个人支付宝扫脸即可，境外节点同样要求实名）。</li>
+<li>进入「产品 → 轻量应用服务器」，点「立即购买」。</li>
+<li>地域选 <strong>中国香港</strong>。</li>
+<li>镜像选 <strong>系统镜像 → Ubuntu 24.04</strong>（不要选 WordPress、宝塔等应用镜像，避免多装一堆用不到的东西）。</li>
+<li>套餐选 <strong>2核2G（60GB ESSD / 30Mbps / 2048GB/月）</strong>；购买时长选 <strong>3 年</strong>（若只想先试，选 1 年）。</li>
+<li>勾选自动续费提醒（不必开自动扣款），下单支付。</li>
+<li>支付完成后在「轻量应用服务器 → 服务器」里能看到实例，记下<strong>公网 IP</strong>。</li>
+</ol>
+<h3>3.2 放行端口（最容易漏的一步）</h3>
+<p>在实例详情页找到「<strong>防火墙</strong>」（有的界面叫安全组），添加规则：</p>
+<table>
+<thead>
+<tr>
+<th>应用类型</th>
+<th>协议</th>
+<th>端口</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自定义</td>
+<td>TCP</td>
+<td><strong>8787</strong></td>
+<td>白板必需</td>
+</tr>
+<tr>
+<td>自定义</td>
+<td>TCP</td>
+<td>80</td>
+<td>以后绑域名、签证书用</td>
+</tr>
+<tr>
+<td>自定义</td>
+<td>TCP</td>
+<td>443</td>
+<td>以后上 HTTPS 用</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>只放 8787 也能正常用；80/443 是给第五节的 HTTPS 预留的。<strong>这一步没做，浏览器会一直转圈打不开</strong>。</p>
+</blockquote>
+<h3>3.3 登录服务器</h3>
+<p>两种方式，任选：</p>
+<ul>
+<li><strong>方式一（推荐给新手）</strong>：实例详情页点「远程连接」→ 按提示设置/输入 root 密码 → 网页里直接出现黑色终端窗口。</li>
+<li><strong>方式二（Windows 10/11）</strong>：按 <code>Win + X</code> 打开「终端」，输入 <code>ssh root@你的公网IP</code>，首次会问 <code>yes/no</code>，输 <code>yes</code>，再输入密码（输入时屏幕不显示，属正常）。</li>
+</ul>
+<p>登录成功后，提示符类似 <code>root@iZxxxx:~#</code>。</p>
+<h3>3.4 一键部署（复制粘贴即可）</h3>
+<p>依次粘贴执行（把 <code>你的口令</code> 换成一串 12 位以上的随机字符，例如 <code>wb-7Kp2mQ9xT4vR</code>）：</p>
+<pre><code class="language-bash">sudo -i
+curl -fsSL -o deploy.sh https://raw.githubusercontent.com/rkdehd-rgb/whiteboard/master/deploy.sh
+bash deploy.sh --token 你的口令
+</code></pre>
+<p>脚本会做五件事：装 Node.js（若缺）→ 建 <code>/opt/whiteboard</code> → 拷贝程序 → 注册 <code>whiteboard</code> 服务并开机自启 → 打印可分享的网址。</p>
+<p>看到类似下面的输出就成功了：</p>
+<pre><code>==&gt; 部署完成
+
+  服务器公网 IP：47.xx.xx.xx
+  健康检查：    http://47.xx.xx.xx:8787/health?token=你的口令
+  打开白板：    http://47.xx.xx.xx:8787/?token=你的口令
+  发给同事：    http://47.xx.xx.xx:8787/?token=你的口令#room=team
+</code></pre>
+<p><strong>如果 <code>curl</code> 下载失败</strong>（GitHub 在国内时常抽风），改用手工上传，效果一样：</p>
+<ol>
+<li>在你自己的电脑上，把 <code>whiteboard.html</code>、<code>relay-server.js</code>、<code>deploy.sh</code> 三个文件放到同一个文件夹；</li>
+<li>在该文件夹打开「终端 / PowerShell」，执行（把 IP 换成你的）：<br />
+<code>bash
+   scp whiteboard.html relay-server.js deploy.sh root@你的公网IP:/root/</code></li>
+<li>SSH 登录服务器，执行：<br />
+<code>bash
+   sudo -i
+   bash /root/deploy.sh --token 你的口令</code></li>
+</ol>
+<h3>3.5 验证</h3>
+<ol>
+<li>浏览器打开 <code>http://你的IP:8787/health?token=你的口令</code>，应看到一段 JSON：<br />
+<code>json
+   {"ok":true,"auth":true,"rooms":[],"snaps":[],"limits":{"conns":500,"msgPerSec":120,"snapRooms":200}}</code><br />
+<code>ok:true</code> 说明服务活着；<code>auth:true</code> 说明口令已生效。</li>
+<li>打开 <code>http://你的IP:8787/?token=你的口令</code>，进入白板。右上角「协作」按钮旁的小圆点变成<strong>蓝色</strong>，即为实时通道已接通；灰色说明没连上（见第九节）。</li>
+</ol>
+<h3>3.6 发给同事</h3>
+<p>链接格式（<strong>顺序不能变</strong>：先 <code>?token=</code>，再 <code>#room=</code>）：</p>
+<pre><code>http://你的IP:8787/?token=你的口令#room=proj-a
+</code></pre>
+<p>房间号规则（重要）：</p>
+<ul>
+<li>只能使用 <strong>字母、数字、下划线 <code>_</code>、点 <code>.</code>、短横 <code>-</code></strong>，长度 1–64；</li>
+<li><strong>不要用中文</strong>。中继只认 ASCII 房间名，中文会被并到公共房间，导致不同项目的内容混在一起；</li>
+<li>建议用小写拼音或英文项目代号：<code>#room=pan-tu</code>、<code>#room=weekly</code>。</li>
+</ul>
+<p>不带 <code>#room=</code> 打开时，会自动进入「公共白板」（房间 <code>main</code>）。第一次使用时内容里会有一点示例便签，清空即可。</p>
+<h3>3.7 手动部署（脚本不适用时）</h3>
+<details>
+<summary>点开查看完整手工步骤（Ubuntu / Debian）</summary>
+
+
+<pre><code class="language-bash"># 1. 装 Node.js 18+（Ubuntu 24.04 自带 18，可直接 apt 安装）
+apt-get update &amp;&amp; apt-get install -y nodejs
+node -v          # 应显示 v18 及以上
+
+# 2. 建目录并放程序（假设已上传到 /root）
+mkdir -p /opt/whiteboard/rooms
+cp /root/relay-server.js /root/whiteboard.html /opt/whiteboard/
+useradd --system --home /opt/whiteboard --shell /usr/sbin/nologin wb || true
+chown -R wb:wb /opt/whiteboard
+
+# 3. 注册开机自启
+cat &gt; /etc/systemd/system/whiteboard.service &lt;&lt;'EOF'
+[Unit]
+Description=M2Studio Whiteboard Relay
+After=network-online.target
+
+[Service]
+Type=simple
+User=wb
+WorkingDirectory=/opt/whiteboard
+ExecStart=/usr/bin/node /opt/whiteboard/relay-server.js --port 8787 --dir /opt/whiteboard/rooms --token 你的口令
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now whiteboard
+systemctl status whiteboard --no-pager
+</code></pre>
+
+
+先临时前台跑一次排查问题也很方便：`node /opt/whiteboard/relay-server.js --port 8787 --token 测试口令`，按 `Ctrl+C` 结束。
+</details>
+
+<hr />
+<h2>四、方案 B：团队全在大陆（最省钱）</h2>
+<p>流程与方案 A 完全一样，只是购买选项不同：</p>
+<ol>
+<li>腾讯云 → 轻量应用服务器 → 地域选 <strong>上海 / 广州 / 北京 / 成都</strong> 任一；</li>
+<li>镜像 Ubuntu 24.04；套餐 <strong>2核2G 4M（300GB/月）</strong>，首年活动价约 99 元；若图多，选 <strong>2核4G 5M，188 元/年</strong>；</li>
+<li>防火墙放行 <strong>TCP 8787</strong>；</li>
+<li>同样跑 <code>deploy.sh</code>；</li>
+<li>分享 <code>http://IP:8787/?token=口令#room=proj-a</code>。</li>
+</ol>
+<p>需要知道的三个差别：</p>
+<ul>
+<li><strong>不需要备案</strong>，前提是只用 <code>IP:端口</code> 访问；</li>
+<li>一旦要绑域名走 443，就必须备案（阿里云/腾讯云控制台都有入口，通常 2–3 周，需要域名已在同一账号实名）；</li>
+<li>4M 是峰值带宽，多人同时贴大图会短暂变慢；把图片压到 500KB 以内基本无感。</li>
+</ul>
+<p>续费提醒：99 元是首年活动价，原价约 576 元/年；部分"续费同价"档位只允许续一次，请在下单页确认。</p>
+<hr />
+<h2>五、可选升级：域名 + HTTPS（约 30 分钟）</h2>
+<p>有域名以后，链接好记，<code>token</code> 也不会以明文在公网传输（现在的 <code>http://</code> 是明文）。</p>
+<ol>
+<li><strong>买域名</strong>：阿里云/腾讯云均可，<code>.com</code> 约 60–85 元/年，<code>.cn</code> 约 30–75 元/年。大陆服务器绑域名需先备案；香港服务器不需要。</li>
+<li><strong>解析</strong>：域名控制台加一条 <code>A</code> 记录，主机记录填 <code>wb</code>，值填服务器公网 IP。几分钟后 <code>ping wb.你的域名.com</code> 能看到这个 IP。</li>
+<li><strong>装 Caddy</strong>（自动申请并续期免费证书，自动支持 WebSocket）：<br />
+<code>bash
+   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl gnupg
+   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+   apt-get update &amp;&amp; apt-get install -y caddy</code></li>
+<li><strong>配置</strong>：编辑 <code>/etc/caddy/Caddyfile</code>，整个文件写成（把域名和口令换成你的）：<br />
+<code>wb.你的域名.com {
+       reverse_proxy 127.0.0.1:8787
+   }</code><br />
+   然后 <code>systemctl reload caddy</code>。</li>
+<li><strong>验证</strong>：浏览器打开 <code>https://wb.你的域名.com/?token=你的口令</code>，小圆点变蓝即成功。</li>
+<li>之后分享的链接一律用 <code>https://...</code> 开头。<strong>页面是 https 时，实时通道会自动用 wss</strong>，不需要改任何代码。</li>
+</ol>
+<blockquote>
+<p>证书签不下来，九成是 80/443 没在云厂商防火墙放行，或域名还没解析生效。</p>
+</blockquote>
+<hr />
+<h2>六、日常使用规约（3–5 人团队建议）</h2>
+<table>
+<thead>
+<tr>
+<th>事项</th>
+<th>建议做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>房间怎么分</td>
+<td>一个项目一个房间（<code>#room=proj-a</code>），一块白板一个议题；房间号用英文/拼音</td>
+</tr>
+<tr>
+<td>白板怎么命名</td>
+<td>点顶栏「白板」按钮，「重命名当前」改成 <code>2026Q4-品牌策略</code> 这类能检索的名字</td>
+</tr>
+<tr>
+<td>谁在改</td>
+<td>点自己头像可以改名换色，协作时光标上会显示是谁</td>
+</tr>
+<tr>
+<td>同时编辑</td>
+<td>两个人同时拖同一个便签，以最后一次操作为准（后到覆盖）。建议分工区域，或用评论留言协调</td>
+</tr>
+<tr>
+<td>异步讨论</td>
+<td>按 <code>C</code> 在画布上放评论图钉，可留言、标记「已解决」；<strong>没有 @ 提醒</strong>，重要结论请当面/群里同步</td>
+</tr>
+<tr>
+<td>图片</td>
+<td>先压到 500KB–1MB 再贴；整块板内容超过 12MB 时服务器会跳过缓存（新成员看不到内容），图片多的板可把 <code>--snapmb</code> 调大</td>
+</tr>
+<tr>
+<td>备份</td>
+<td>每周一次：<code>Ctrl+E → 导出工程文件</code>，把 <code>.json</code> 存到网盘（含图片本体，可完整还原）</td>
+</tr>
+<tr>
+<td>离开前</td>
+<td>不需要手动保存，改动 0.5 秒内自动存；<code>Ctrl+S</code> 可立即存一次</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>七、备份、迁移与续费</h2>
+<p><strong>服务器端备份（推荐每周一次）</strong></p>
+<pre><code class="language-bash"># 打包所有房间内容到当前目录
+tar czf rooms-$(date +%F).tar.gz -C /opt/whiteboard rooms
+
+# 从你自己的电脑下载（Windows 终端 / macOS 终端，替换 IP）
+scp root@你的IP:/root/rooms-2026-11-17.tar.gz .
+</code></pre>
+<p>可以把上面两行写成服务器上的定时任务（每天 3 点备份，保留最近 14 份）：</p>
+<pre><code class="language-bash">cat &gt; /etc/cron.d/wb-backup &lt;&lt;'EOF'
+0 3 * * * root cd /root &amp;&amp; tar czf rooms-$(date +\%F).tar.gz -C /opt/whiteboard rooms &amp;&amp; ls -t /root/rooms-*.tar.gz | tail -n +15 | xargs -r rm
+EOF
+</code></pre>
+<p><strong>迁移到新服务器</strong>（换机、换厂商）</p>
+<ol>
+<li>旧机：<code>tar czf rooms.tar.gz -C /opt/whiteboard rooms</code>，下载；</li>
+<li>新机：按第三节装好环境，把 <code>rooms.tar.gz</code> 传到 <code>/opt/whiteboard/</code> 并解压 <code>tar xzf rooms.tar.gz</code>；</li>
+<li>重启服务 <code>systemctl restart whiteboard</code>，把新链接发给同事即可。</li>
+</ol>
+<p><strong>续费</strong>：到期不续费，实例会被释放，<code>rooms</code> 里的内容<strong>无法找回</strong>。建议开「到期提醒」，并在日历上记一笔；重要内容同时留一份工程文件在网盘。</p>
+<hr />
+<h2>八、费用清单（3–5 人，按年）</h2>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>首年</th>
+<th>第二年起</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>阿里云香港 2核2G（3 年付）</td>
+<td>408 元</td>
+<td>408 元</td>
+<td>一次买 3 年，锁住活动价</td>
+</tr>
+<tr>
+<td>腾讯云大陆 2核2G 4M（1 年付）</td>
+<td>99 元</td>
+<td>约 576 元</td>
+<td>首年活动价，续费回原价</td>
+</tr>
+<tr>
+<td>域名（可选）</td>
+<td>30–85 元</td>
+<td>30–85 元</td>
+<td><code>.cn</code> 便宜，<code>.com</code> 通用</td>
+</tr>
+<tr>
+<td>HTTPS 证书</td>
+<td>0 元</td>
+<td>0 元</td>
+<td>Let's Encrypt 免费，Caddy 自动续期</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td><strong>约 300–500 元</strong></td>
+<td><strong>约 400–700 元</strong></td>
+<td>折合每人每年 100 元上下</td>
+</tr>
+</tbody>
+</table>
+<p>对比：主流在线白板 SaaS 按人头收费，5 人一年通常 1000–3000 元，且协作人数、导出清晰度常受套餐限制。自建的主要成本是"半天部署 + 每年一次续费"。</p>
+<hr />
+<h2>九、常见故障排查</h2>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>最可能的原因</th>
+<th>怎么办</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>浏览器一直转圈、打不开</td>
+<td>云厂商防火墙没放行 8787</td>
+<td>控制台 → 防火墙/安全组 → 加 TCP 8787；<code>curl -I http://IP:8787/health</code> 在本机测</td>
+</tr>
+<tr>
+<td>页面能开，但右上角圆点是灰的</td>
+<td>WebSocket 没通</td>
+<td>看地址是否 <code>http://</code> 配 <code>ws://</code>；若走了反向代理，确认代理支持 Upgrade；<code>journalctl -u whiteboard -n 50</code> 看有没有 401/断开</td>
+</tr>
+<tr>
+<td>提示「该中继已启用口令」</td>
+<td>链接里没带 token</td>
+<td>用完整链接 <code>?token=口令#room=xxx</code>（顺序不能反）</td>
+</tr>
+<tr>
+<td>连不上且日志有 401</td>
+<td>口令不对/少了参数</td>
+<td>核对 token；口令含特殊字符时先换成纯字母数字试</td>
+</tr>
+<tr>
+<td>两个项目的内容混在一起</td>
+<td>房间号用了中文，被并到公共房间</td>
+<td>房间号改英文/拼音</td>
+</tr>
+<tr>
+<td>同事刷新后图片没了</td>
+<td>房间内容超过 <code>--snapmb</code>（默认 12MB）时，服务器既不缓存也不落盘；或他清了浏览器缓存</td>
+<td>压缩图片；把服务改成 <code>--snapmb 24</code>；用工程文件补回</td>
+</tr>
+<tr>
+<td>服务器重启后内容还在，但新成员看不到</td>
+<td>快照没写入磁盘（权限/磁盘满）</td>
+<td><code>df -h</code> 看磁盘；<code>ls -l /opt/whiteboard/rooms</code> 看文件；<code>journalctl</code> 看报错</td>
+</tr>
+<tr>
+<td>晚上 8–11 点特别卡</td>
+<td>跨境线路晚高峰抖动</td>
+<td>换香港/大陆节点；或把图片压小、错峰上传大图</td>
+</tr>
+<tr>
+<td>手机打开很卡</td>
+<td>图片多、板子大</td>
+<td>按 <code>Shift+1</code> 适应画布再操作；图片先压缩</td>
+</tr>
+<tr>
+<td>改了端口后打不开</td>
+<td>防火墙只放行了旧端口</td>
+<td>放行新端口，并且通知所有人换新链接</td>
+</tr>
+<tr>
+<td>服务没起来</td>
+<td>端口被占用 / Node 版本过低</td>
+<td><code>journalctl -u whiteboard -n 50</code>；<code>node -v</code> 是否 ≥18</td>
+</tr>
+<tr>
+<td>装不上 Node（卡在下载）</td>
+<td>官方源慢</td>
+<td>换淘宝镜像：<code>export NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node</code> 后重跑；或直接 <code>apt install nodejs</code> 用系统自带 18</td>
+</tr>
+</tbody>
+</table>
+<p>服务器上的三条保命命令：</p>
+<pre><code class="language-bash">systemctl status whiteboard --no-pager     # 服务活着吗
+journalctl -u whiteboard -n 50 --no-pager  # 最近 50 行日志
+curl -s http://127.0.0.1:8787/health       # 本机自测（排除网络问题）
+</code></pre>
+<hr />
+<h2>十、安全检查清单</h2>
+<p>长期对外开着，至少做到这六条：</p>
+<ul>
+<li>[ ] 设置了 <code>--token</code>，口令 12 位以上、不含姓名/项目名；</li>
+<li>[ ] 口令只发给团队，不贴在公开群公告、不写进对外文档；</li>
+<li>[ ] 定期 <code>apt-get update &amp;&amp; apt-get upgrade -y</code>（每月一次）；</li>
+<li>[ ] root 密码强口令，不用 123456；能上密钥登录更好；</li>
+<li>[ ] 有条件就上 HTTPS（第五节），否则 token 在公网是明文；</li>
+<li>[ ] 云账号开启二次验证，避免账号被盗后服务器被清空。</li>
+</ul>
+<p>关于权限，需要说明清楚：<strong>这套白板只有"房间口令"，没有账号与权限体系</strong>——拿到链接的人都能编辑，也无法审计"谁改的"。3–5 人的信任团队没问题；如果要给外部客户看，建议单独开一个房间、只发只读需求给他们截图/导出的 PDF。</p>
+<hr />
+<h2>附录 A · 常用命令速查</h2>
+<pre><code class="language-bash">systemctl restart whiteboard      # 重启
+systemctl stop whiteboard         # 停止
+journalctl -u whiteboard -f       # 实时看日志（Ctrl+C 退出）
+ls -lh /opt/whiteboard/rooms      # 看各房间快照大小
+du -sh /opt/whiteboard/rooms      # 看总占用
+</code></pre>
+<h2>附录 B · 中继参数</h2>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--port 8787</code></td>
+<td>8787</td>
+<td>监听端口</td>
+</tr>
+<tr>
+<td><code>--dir ./rooms</code></td>
+<td>程序目录下 <code>rooms</code></td>
+<td>快照目录</td>
+</tr>
+<tr>
+<td><code>--token 口令</code></td>
+<td>无</td>
+<td>开启访问口令（也可用环境变量 <code>RELAY_TOKEN</code>）</td>
+</tr>
+<tr>
+<td><code>--snapmb 12</code></td>
+<td>12</td>
+<td>单房间快照上限（MB），超过不落盘</td>
+</tr>
+<tr>
+<td><code>--snaprooms 200</code></td>
+<td>200</td>
+<td>内存里保留多少个房间快照</td>
+</tr>
+<tr>
+<td><code>--maxconn 500</code></td>
+<td>500</td>
+<td>同时连接数上限</td>
+</tr>
+<tr>
+<td><code>--ratemsg 120</code></td>
+<td>120</td>
+<td>单连接每秒消息上限（防刷）</td>
+</tr>
+<tr>
+<td><code>--no-save</code></td>
+<td>关</td>
+<td>只转发不落盘（重启即丢，不建议长期用）</td>
+</tr>
+</tbody>
+</table>
+<h2>附录 C · 名词对照</h2>
+<table>
+<thead>
+<tr>
+<th>名词</th>
+<th>通俗解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>轻量应用服务器</td>
+<td>云厂商打包好的入门服务器：CPU/内存/硬盘/带宽一起卖，管理界面简单</td>
+</tr>
+<tr>
+<td>公网 IP</td>
+<td>这台服务器在互联网上的门牌号</td>
+</tr>
+<tr>
+<td>端口</td>
+<td>门牌号后面的房间号；白板默认走 8787 号房间</td>
+</tr>
+<tr>
+<td>备案</td>
+<td>大陆服务器绑定<strong>域名</strong>前的许可；只用 IP 访问不需要</td>
+</tr>
+<tr>
+<td>HTTPS / 证书</td>
+<td>给网址加密；Let's Encrypt 免费，Caddy 自动申请</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td>让"实时协作"成立的通道；页面是 https 时必须用 wss</td>
+</tr>
+<tr>
+<td>快照</td>
+<td>服务器上保存的该房间最后一份完整内容（不是版本历史）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><strong>最后一句话</strong>：这套白板的可靠性 = 服务器的可靠性 × 你有没有做备份。花 400 元买台机器只是开始，真正省心的是"每周导出一份工程文件"这个动作。</p>
+</body></html>

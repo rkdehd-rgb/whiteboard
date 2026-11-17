@@ -6235,7 +6235,7 @@ setTimeout(()=>{
   fetch('health' + qs).then(r => r.json()).then(j => {
     if(!j || !j.ok) return;
     // 中继开了口令但网址没带 token：直接提示，避免只表现为"连不上"
-    if(j.auth && !/[?&]token=/.test(qs)){ toast('该中继已启用口令：请在网址后加 &token=… 再打开'); return; }
+    if(j.auth && !/[?&]token=/.test(qs)){ toast('该中继已启用口令：请在网址后加 ?token=… 再打开'); return; }
     const url = wsUrl;
     const inp = $('#wsUrl'); if(inp) inp.value = url;
     if(!HASH_ROOM0 && ROOM !== 'main'){

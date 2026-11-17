@@ -30,13 +30,14 @@ Windows 下也可以双击 `启动中继.bat`。
 
 ### 分房间
 
-地址后加 `#room=项目名`，同名房间才互通：
+地址后加 `#room=房间号`，同名房间才互通：
 
 ```
 http://192.168.1.10:8787/#room=a1
 ```
 
-不带参数时进默认房间。
+房间号只能用字母、数字、下划线、点、横线（1–64 字符）；**中文会被中继归到公共房间**，请用拼音或英文。
+不带参数时进公共白板（房间 `main`）。
 
 ---
 
@@ -180,6 +181,8 @@ TIMEOUT=120 node test/run.js  # 放宽单条主线超时（秒）
 whiteboard.html                单文件白板（HTML + CSS + JS，约 265KB）
 relay-server.js                零依赖 WebSocket 中继（同时托管页面）
 启动中继.bat                   Windows 一键起中继
+deploy.sh                      云服务器一键部署（Ubuntu/Debian，systemd 自启）
+团队长期协作部署指南.md/.html/.pdf   公网长期协作：买什么、怎么装、怎么运维
 web/                           发布副本（页面 + 中继 + package.json）
 test/
   run.js                       回归入口
