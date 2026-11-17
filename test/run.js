@@ -47,7 +47,8 @@ const SPECS = [
   { name: 'img', file: 'specs/img.spec.html', desc: '图片按原始像素插入' },
   { name: 'pinch', file: 'specs/pinch.spec.html', desc: '手机端双指缩放' },
   { name: 'shape', file: 'specs/shape.spec.html', desc: '图形拖拽创建' },
-  { name: 'profile', file: 'specs/profile.spec.html', desc: '自定义用户名与协作同步' }
+  { name: 'profile', file: 'specs/profile.spec.html', desc: '自定义用户名与协作同步' },
+  { name: 'project', file: 'specs/project.spec.html', desc: '工程文件导出 / 导入' }
 ];
 
 /* 注入到 IIFE 末尾的测试探针 */
@@ -62,6 +63,8 @@ window.__T = {
   get tool(){ return tool; },
   drag, ptrs, pinch, setTool,
   applyMyProfile, cleanName, openProfile, closeProfPop, submitProfile, renderPresence,
+  buildProjectFile, importProjectData, sanitizeProjectDoc, exportProject, projFileName,
+  switchBoard, readIndex, get PROJ_KIND(){ return PROJ_KIND; },
   get PROFILE_KEY(){ return PROFILE_KEY; },
   get profPop(){ return profPop; },
   get pinchLatch(){ return pinchLatch; },

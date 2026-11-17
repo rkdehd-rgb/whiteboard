@@ -724,6 +724,7 @@ svg{display:block}
     <div class="bp-foot">
       <button class="bp-btn" id="bpSave" data-i18n="boards.save">保存当前</button>
       <button class="bp-btn" id="bpRename" data-i18n="boards.rename">重命名当前</button>
+      <button class="bp-btn" id="bpImport" data-i18n="boards.import">导入工程</button>
     </div>
     <div class="bp-head" style="margin-top:10px">
       <span data-i18n="lang.title">语言 / Language</span>
@@ -854,11 +855,12 @@ const I18N = {
     'ctl.frameRatio':'图框比例', 'ctl.frameSize':'尺寸', 'ctl.shape':'图形',
     'menu.exportPng':'导出图片 PNG', 'menu.exportPdf':'导出 PDF 文档', 'menu.exportCopy':'复制图片到剪贴板',
     'menu.perFrame':'按图框分页（每框一页）', 'menu.grid':'包含浅灰网格背景', 'menu.hd':'高清导出（长边 5200）',
+    'menu.exportProject':'导出工程文件（.json）', 'menu.importProject':'导入工程文件…',
     'menu.on':'开', 'menu.off':'关',
     'boards.title':'白板存档', 'boards.sub':'每块白板独立保存、独立协作房间。切换或新建前会自动保存当前内容。',
     'boards.name':'新白板名称（留空按默认命名）', 'boards.create':'新建并打开',
     'boards.total':'共 {n} 块白板', 'boards.sort':'排序：最近修改', 'boards.sortName':'排序：名称',
-    'boards.save':'保存当前', 'boards.rename':'重命名当前',
+    'boards.save':'保存当前', 'boards.rename':'重命名当前', 'boards.import':'导入工程',
     'lang.title':'语言 / Language', 'lang.zh':'中文', 'lang.en':'English',
     'insp.fill':'填充', 'insp.stroke':'描边', 'insp.strokeColor':'描边颜色', 'insp.lineWidth':'线宽',
     'insp.dash':'虚线', 'insp.opacity':'透明度', 'insp.textColor':'文字颜色', 'insp.size':'字号',
@@ -873,11 +875,12 @@ const I18N = {
     'ctl.frameRatio':'Ratio', 'ctl.frameSize':'Size', 'ctl.shape':'Shape',
     'menu.exportPng':'Export PNG', 'menu.exportPdf':'Export PDF', 'menu.exportCopy':'Copy image',
     'menu.perFrame':'One page per frame', 'menu.grid':'Light grid background', 'menu.hd':'High-res export (5200px)',
+    'menu.exportProject':'Export project (.json)', 'menu.importProject':'Import project…',
     'menu.on':'On', 'menu.off':'Off',
     'boards.title':'Boards', 'boards.sub':'Each board has its own save and room. The current board is saved before switching.',
     'boards.name':'New board name (optional)', 'boards.create':'Create',
     'boards.total':'{n} boards', 'boards.sort':'Sort: recently edited', 'boards.sortName':'Sort: name',
-    'boards.save':'Save', 'boards.rename':'Rename',
+    'boards.save':'Save', 'boards.rename':'Rename', 'boards.import':'Import',
     'lang.title':'Language / 语言', 'lang.zh':'中文', 'lang.en':'English',
     'insp.fill':'Fill', 'insp.stroke':'Stroke', 'insp.strokeColor':'Stroke color', 'insp.lineWidth':'Width',
     'insp.dash':'Dashed', 'insp.opacity':'Opacity', 'insp.textColor':'Text color', 'insp.size':'Size',
@@ -3837,6 +3840,8 @@ const menuHandlers = {
   expPng: ()=> exportPNG(),
   expPdf: ()=> exportPDF(),
   expCopy: ()=> exportCopy(),
+  expProject: ()=> exportProject(),
+  impProject: ()=> pickProjectFile(),
   expGrid: ()=>{ exportGrid = !exportGrid; toast(exportGrid ? '导出将包含浅灰网格' : '导出不含网格背景'); },
   expHD: ()=>{
     exportHD = !exportHD;
@@ -5089,7 +5094,9 @@ const expMaxZoom = () => exportHD ? 4 : 2.2;
 const EXICO = {
   down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M8 11.5l4 4 4-4"/><path d="M4 19h16"/></svg>',
   img:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.6"/><circle cx="8.6" cy="9.6" r="1.5"/><path d="M4 16.5l4.8-4.4 3.2 3 2.6-2.2 5.4 4.6"/></svg>',
-  pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h7l5 5v12a1.5 1.5 0 0 1 -1.5 1.5H6.5A1.5 1.5 0 0 1 5 20V4.5A1.5 1.5 0 0 1 6.5 3z"/><path d="M13.2 3v5h5"/><path d="M8.6 17.2v-4.2h1.3a1.3 1.3 0 0 1 0 2.6H8.6"/><path d="M13 17.2v-4.2h1.6a2.1 2.1 0 0 1 0 4.2z"/></svg>'
+  pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h7l5 5v12a1.5 1.5 0 0 1 -1.5 1.5H6.5A1.5 1.5 0 0 1 5 20V4.5A1.5 1.5 0 0 1 6.5 3z"/><path d="M13.2 3v5h5"/><path d="M8.6 17.2v-4.2h1.3a1.3 1.3 0 0 1 0 2.6H8.6"/><path d="M13 17.2v-4.2h1.6a2.1 2.1 0 0 1 0 4.2z"/></svg>',
+  file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3h7l5 5v12a1.5 1.5 0 0 1-1.5 1.5H6.5A1.5 1.5 0 0 1 5 20V4.5A1.5 1.5 0 0 1 6.5 3z"/><path d="M13.2 3v5h5"/><path d="M8.5 13h7M8.5 16.5h4.5"/></svg>',
+  open:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>'
 };
 
 /* 按宽度折算换行；中文逐字断，英文按词断 */
@@ -5513,6 +5520,9 @@ function openExportMenu(anchor){
     { a:'expPdf',  label:t('menu.exportPdf'),   icon:EXICO.pdf,  k:'A4' },
     { a:'expCopy', label:t('menu.exportCopy'),  icon:ICON.copy },
     { sep:true },
+    { a:'expProject', label:t('menu.exportProject'), icon:EXICO.file, k:'.json' },
+    { a:'impProject', label:t('menu.importProject'), icon:EXICO.open },
+    { sep:true },
     { a:'expPerFrame', label:t('menu.perFrame'), icon:ICON.frame, k: exportPerFrame ? t('menu.on') : t('menu.off') },
     { a:'expGrid', label:t('menu.grid'),        icon:ICON.grid,  k: exportGrid ? t('menu.on') : t('menu.off') },
     { a:'expHD',   label:t('menu.hd'),          icon:ICON.ratio, k: exportHD ? t('menu.on') : t('menu.off') }
@@ -5526,6 +5536,193 @@ $('#exportBtn').onclick = e => {
   openExportMenu();
 };
 $('#exportBtn').oncontextmenu = e => e.preventDefault();
+
+/* ==================================================================
+   20.5 工程文件：整块白板连图片一起导出 / 导入（.json）
+   导出：8 类对象 + 图片本体（内存没有就从 IndexedDB 取）+ 视口 + 版本号
+   导入：字段白名单清洗 → 图片先入 IndexedDB → 新建一块白板并切过去
+        （绝不覆盖当前白板；文件名或内容非法时不落任何数据）
+================================================================== */
+const PROJ_KIND = 'whiteboard.project';
+const PROJ_APP = 'M²Studio';
+const PROJ_MAX_BYTES = 150 * 1024 * 1024;     // 工程文件上限，超出直接拒绝，避免卡死
+
+function projFileName(){
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const base = String(boardName(ROOM) || '白板')
+    .replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || '白板';
+  return base + '-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate())
+    + '-' + p(d.getHours()) + p(d.getMinutes()) + '.json';
+}
+
+/* 导出内容：图片本体优先取内存，其次取 IndexedDB（localStorage 里可能只剩元数据） */
+function buildProjectFile(){
+  const poolP = idbBroken ? Promise.resolve({}) : idbAll().catch(() => ({}));
+  return poolP.then(pool => {
+    const images = {};
+    let missing = 0;
+    for(const id in doc.images){
+      const im = doc.images[id]; if(!im) continue;
+      const src = (typeof im.src === 'string' && im.src) ? im.src : (pool[id] || '');
+      const copy = Object.assign({}, im);
+      delete copy.missing;
+      if(src){ copy.src = src; delete copy.hasSrc; }
+      else { delete copy.src; copy.missing = 1; missing++; }
+      images[id] = copy;
+    }
+    return {
+      app: PROJ_APP,
+      kind: PROJ_KIND,
+      v: DOC_VERSION,
+      name: boardName(ROOM),
+      exportedAt: new Date().toISOString(),
+      view: { x: Math.round(view.x), y: Math.round(view.y), z: view.z },
+      doc: {
+        notes: doc.notes, strokes: doc.strokes, edges: doc.edges, images: images,
+        frames: doc.frames, shapes: doc.shapes, texts: doc.texts, comments: doc.comments
+      },
+      stats: docStats(doc),
+      missingImages: missing
+    };
+  });
+}
+
+function exportProject(){
+  flushSave();
+  return buildProjectFile().then(data => {
+    const txt = JSON.stringify(data);
+    downloadBlob(new Blob([txt], { type: 'application/json' }), projFileName());
+    const s = data.stats || {};
+    const imgN = Object.keys(data.doc.images).length;
+    toast('已导出工程：' + (s.n || 0) + ' 便签 · ' + imgN + ' 图片 · ' + Math.round(txt.length / 1024) + 'KB'
+      + (data.missingImages ? '（' + data.missingImages + ' 张图片缺本体）' : ''));
+  }).catch(err => toast('导出失败：' + ((err && err.message) || err)));
+}
+
+function projViewOr(v){
+  if(!v || typeof v !== 'object') return null;
+  const x = numOr(v.x, -1e7, 1e7), y = numOr(v.y, -1e7, 1e7), z = numOr(v.z, 0.05, 8);
+  return (x === undefined || y === undefined || z === undefined) ? null : { x: x, y: y, z: z };
+}
+function projNameOr(v){
+  const raw = (typeof v === 'string') ? v : '';
+  let s = '';
+  for(const ch of raw){ if(ch.codePointAt(0) >= 32) s += ch; }
+  s = s.trim();
+  const arr = Array.from(s);
+  return arr.length ? arr.slice(0, 24).join('') : '导入的白板';
+}
+
+/* 校验 + 清洗；任何不合规都抛错，不产生半成品 */
+function sanitizeProjectDoc(obj){
+  const srcDoc = (obj && obj.doc && typeof obj.doc === 'object') ? obj.doc : obj;
+  if(!srcDoc || typeof srcDoc !== 'object' || Array.isArray(srcDoc)) throw new Error('文件里没有白板数据');
+  const v = numOr(obj && obj.v, 0, 1e6);
+  if(v && v > DOC_VERSION) throw new Error('工程文件来自更新的版本（v' + v + '），请先升级页面再导入');
+  const out = {};
+  let total = 0;
+  for(const bucket in BUCKET_TYPE){
+    const type = BUCKET_TYPE[bucket];
+    const bag = srcDoc[bucket];
+    const dst = {};
+    if(bag && typeof bag === 'object' && !Array.isArray(bag)){
+      for(const key in bag){
+        if(!Object.prototype.hasOwnProperty.call(bag, key)) continue;
+        const r = bag[key];
+        if(!r || typeof r !== 'object' || Array.isArray(r)) continue;
+        const id = safeId(r.id) || safeId(key);
+        if(!id) continue;
+        const clean = cleanRecord(type, r, id, true);
+        if(!clean) continue;
+        // 图片记录必须带像素（本体或已入库标记），否则是空壳占位，直接丢掉
+        if(type === 'image' && !clean.src && !clean.hasSrc) continue;
+        dst[id] = clean;
+        total++;
+      }
+    }
+    out[bucket] = dst;
+  }
+  if(!total) throw new Error('文件里没有可导入的内容');
+  return { doc: out, view: projViewOr(obj && obj.view), name: projNameOr(obj && obj.name) };
+}
+
+/* 导入：图片先入库，再写存档与索引，最后切到新白板 */
+function importProjectData(obj){
+  let parsed;
+  try{ parsed = sanitizeProjectDoc(obj); }
+  catch(err){ return Promise.reject(err); }
+
+  const d = parsed.doc;
+  const imgIds = Object.keys(d.images);
+  const steps = imgIds.map(iid => {
+    const im = d.images[iid];
+    if(!im || typeof im.src !== 'string' || !im.src) return Promise.resolve(false);
+    return idbPut(iid, im.src).then(ok => {
+      if(ok){ im.hasSrc = 1; delete im.src; }     // 已进 IndexedDB，存档里只留元数据
+      return ok;
+    });
+  });
+
+  return Promise.all(steps).then(() => {
+    const id = 'b-' + uid();
+    const list = readIndex();
+    const nm = uniqName(parsed.name, list);
+    const st = docStats(d);
+    list.push({ id: id, name: nm, created: now(), updated: now(), n: st.n, i: imgIds.length, s: st.s });
+    if(!writeIndex(list)) throw new Error('白板索引写入失败（本地存储不可用）');
+
+    const payload = { v: DOC_VERSION, doc: d, view: parsed.view || view, ts: now() };
+    if(!lsSet('wb.doc.' + id, JSON.stringify(payload))){
+      writeIndex(readIndex().filter(b => b.id !== id));      // 回滚索引，别留空壳
+      throw new Error('本地存储空间不足，请先删除一些白板或改用 PNG / PDF 导出');
+    }
+
+    closeBoards();
+    switchBoard(id, { silent: true });
+    toast('已导入『' + nm + '』：' + st.n + ' 便签 · ' + imgIds.length + ' 图片 · ' + st.sh + ' 图形');
+    return id;
+  });
+}
+
+let projInput = null;
+function pickProjectFile(){
+  if(!projInput){
+    projInput = document.createElement('input');
+    projInput.type = 'file';
+    projInput.accept = '.json,application/json';
+    projInput.style.display = 'none';
+    projInput.addEventListener('change', () => {
+      const f = projInput.files && projInput.files[0];
+      projInput.value = '';
+      if(f) importProjectFile(f);
+    });
+    document.body.appendChild(projInput);
+  }
+  projInput.value = '';
+  projInput.click();
+}
+
+function importProjectFile(file){
+  if(file.size > PROJ_MAX_BYTES){
+    toast('工程文件过大（上限 ' + Math.round(PROJ_MAX_BYTES / 1048576) + 'MB）');
+    return Promise.resolve(null);
+  }
+  const read = file.text ? file.text() : new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result || ''));
+    fr.onerror = () => rej(new Error('文件读取失败'));
+    fr.readAsText(file);
+  });
+  return read.then(txt => {
+    let obj = null;
+    try{ obj = JSON.parse(txt); }
+    catch(err){ throw new Error('不是有效的 JSON 文件'); }
+    return importProjectData(obj);
+  }).catch(err => {
+    toast('导入失败：' + ((err && err.message) || '文件无法解析'));
+    return null;
+  });
+}
 
 /* ==================================================================
    21. 持久化
@@ -5913,6 +6110,7 @@ $('#bpSave').onclick = () => {
   toast('已保存『' + boardName(ROOM) + '』');
 };
 $('#bpRename').onclick = () => renameCurrent();
+$('#bpImport').onclick = () => pickProjectFile();
 document.querySelectorAll('[data-lang]').forEach(b => {
   b.onclick = () => setLang(b.dataset.lang);
 });

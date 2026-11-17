@@ -1,0 +1,139 @@
+<!DOCTYPE html><meta charset="utf-8"><title>project 主线</title>
+<style>
+  body{font:13px/1.6 system-ui,"Microsoft YaHei",sans-serif;margin:0;padding:10px;background:#eef1f5}
+  #log{white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #c8ccd3;border-radius:6px}
+  iframe{width:1200px;height:700px;border:1px solid #c8ccd3;margin-top:6px}
+</style>
+<div id="log">PROBE_BEGIN
+</div>
+<iframe id="fa" src="../.tmp/app.html"></iframe>
+<script>
+/* 主线 11：工程文件导出 / 导入（结构、图片本体、清洗、拒绝非法文件、不覆盖当前白板） */
+var L = document.getElementById('log'), pass = 0, fail = 0;
+function P(s){ L.textContent += s + '\n'; try{ fetch('/_report?d=' + encodeURIComponent(L.textContent)); }catch(e){} }
+function ck(c, m){ if(c){ pass++; P('\u2713 ' + m); } else { fail++; P('\u2717 ' + m); } }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+async function until(fn, ms){ var t0=Date.now(); while(Date.now()-t0<ms){ try{ if(fn()) return true; }catch(e){} await wait(80);} return false; }
+
+var PNG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+(async function(){
+ try{
+  var fa = document.getElementById('fa');
+  if(!await until(function(){ return fa.contentWindow.__T; }, 15000)) throw new Error('探针未就绪');
+  var W = fa.contentWindow, D = W.document, T = W.__T;
+  await wait(800);
+
+  T.doOps([{ k:'clear' }]); await wait(400);
+  T.doOps([{ k:'clear' }]); await wait(300);
+
+  /* ---------- 造内容：便签 / 文本 / 图片 ---------- */
+  var n1 = T.addNote(320, 300, { text:'工程便签' });
+  var t1 = T.addText(700, 300, { text:'工程文本' });
+  T.doOps([{ k:'img.add', im:{ id:'impproj1', x:100, y:100, w:120, h:80, nw:1, nh:1, src:PNG1, z:5, ts:Date.now() } }]);
+  await wait(350);
+  ck(!!T.doc.images['impproj1'], '测试图片已插入');
+
+  var oldRoom = T.ROOM, indexBefore = T.readIndex().length;
+
+  /* ---------- A. 工程结构 ---------- */
+  var proj = await T.buildProjectFile();
+  ck(proj.kind === 'whiteboard.project' && proj.app === 'M²Studio', '工程文件带 kind / app 标识');
+  ck(proj.v === T.DOC_VERSION, '工程文件记录 schema 版本（v' + proj.v + '）');
+  ck(proj.doc && proj.doc.notes && proj.doc.texts && proj.doc.images, '包含 8 类对象桶');
+  ck(proj.doc.notes[n1.id] && proj.doc.notes[n1.id].text === '工程便签', '便签内容进工程文件');
+  ck(proj.doc.texts[t1.id] && proj.doc.texts[t1.id].text === '工程文本', '文本内容进工程文件');
+  ck(typeof proj.view.x === 'number' && typeof proj.view.z === 'number', '记录视口位置与缩放');
+  ck(proj.stats && proj.stats.n >= 1, '附带内容统计');
+  ck(/\.json$/.test(T.projFileName()), '文件名以 .json 结尾（' + T.projFileName() + '）');
+
+  /* ---------- B. 图片本体（内存优先） ---------- */
+  var pim = proj.doc.images['impproj1'];
+  ck(pim && pim.src === PNG1, '图片本体随工程导出（data URL）');
+  ck(pim && pim.hasSrc === undefined, '导出后不再带 hasSrc 元数据标记');
+
+  /* ---------- C. JSON 往返 ---------- */
+  var round = JSON.parse(JSON.stringify(proj));
+  ck(round.doc.notes[n1.id].text === '工程便签', 'JSON 往返后内容不变');
+
+  /* ---------- D. 导入：新建白板并切过去 ---------- */
+  var newId = await T.importProjectData(round);
+  await wait(400);
+  ck(!!newId && newId !== oldRoom, '导入生成新的白板 id（' + newId + '）');
+  ck(T.ROOM === newId, '导入后自动切到新白板');
+  ck(!!T.doc.notes[n1.id] && T.doc.notes[n1.id].text === '工程便签', '便签已还原');
+  ck(!!T.doc.texts[t1.id] && T.doc.texts[t1.id].text === '工程文本', '文本已还原');
+  ck(T.readIndex().length === indexBefore + 1, '存档列表新增一条（' + T.readIndex().length + '）');
+
+  var imgOk = await until(function(){
+    var im = T.doc.images['impproj1'];
+    return im && im.src === PNG1;
+  }, 6000);
+  ck(imgOk, '图片本体从本地图片库回填成功');
+  ck(T.doc.images['impproj1'] && T.doc.images['impproj1'].missing !== 1, '导入的图片没有被标记为丢失');
+
+  /* ---------- E. 不覆盖原白板 ---------- */
+  T.switchBoard(oldRoom);
+  await wait(400);
+  ck(T.ROOM === oldRoom, '可切回原白板');
+  ck(!!T.doc.notes[n1.id] && T.doc.notes[n1.id].text === '工程便签', '原白板内容未被导入覆盖');
+
+  /* ---------- F. 非法记录被清洗 ---------- */
+  var dirty = {
+    v: T.DOC_VERSION,
+    name: '脏数据',
+    doc: {
+      notes: {
+        'ok': { id:'ok', x:10, y:10, w:120, h:120, text:'合法便签', evil:'x', color:'javascript:alert(1)' },
+        '__proto__': { id:'__proto__', x:1, y:1, w:10, h:10, text:'污染' },
+        'bad': { id:'bad', x:'not-a-number', w:-5, h:'x' }
+      },
+      images: { 'i-bad': { id:'i-bad', x:0, y:0, w:10, h:10, src:'javascript:alert(1)' } }
+    }
+  };
+  await T.importProjectData(dirty);
+  await wait(300);
+  ck(!!T.doc.notes['ok'], '合法记录保留');
+  ck(T.doc.notes['ok'].evil === undefined, '白名单外字段被丢弃');
+  ck(T.doc.notes['ok'].color === '#FFE7A3', '非法颜色值回落默认色（' + T.doc.notes['ok'].color + '）');
+  ck(!Object.prototype.hasOwnProperty.call(T.doc.notes, '__proto__'), '保留 id（__proto__）被拒绝');
+  ck(!T.doc.images['i-bad'], '没有可用像素的图片记录被丢弃');
+
+  /* ---------- G. 拒绝非法文件 ---------- */
+  var e1 = null;
+  try{ await T.importProjectData({ doc: { notes: {} } }); }catch(err){ e1 = err; }
+  ck(!!e1, '空工程被拒绝（' + (e1 && e1.message) + '）');
+
+  var e2 = null;
+  try{ await T.importProjectData({ v: 999, doc: { notes: { a: { id:'a', x:0, y:0, w:10, h:10, text:'t' } } } }); }
+  catch(err){ e2 = err; }
+  ck(!!e2 && /版本/.test(e2.message), '更高版本的工程被拒绝');
+
+  var e3 = null;
+  try{ await T.importProjectData('nonsense'); }catch(err){ e3 = err; }
+  ck(!!e3, '非对象内容被拒绝');
+
+  /* ---------- H. 导出真的产出 JSON 文件 ---------- */
+  var blobs = [], names = [];
+  var origCreate = W.URL.createObjectURL, origClick = W.HTMLAnchorElement.prototype.click;
+  W.URL.createObjectURL = function(b){ blobs.push(b); return origCreate.call(W.URL, b); };
+  W.HTMLAnchorElement.prototype.click = function(){ names.push(this.download); };
+  try{ await T.exportProject(); }finally{
+    W.URL.createObjectURL = origCreate;
+    W.HTMLAnchorElement.prototype.click = origClick;
+  }
+  await wait(300);
+  ck(blobs.length === 1, '导出触发一次下载');
+  ck(blobs[0] && blobs[0].type === 'application/json', '下载内容是 JSON（' + (blobs[0] && blobs[0].type) + '）');
+  ck(/\.json$/.test(names[0] || ''), '下载文件名带 .json（' + names[0] + '）');
+  var body = '';
+  try{ body = await blobs[0].text(); }catch(e){}
+  var okBody = false;
+  try{ okBody = JSON.parse(body).kind === 'whiteboard.project'; }catch(e){}
+  ck(okBody, '下载内容是可解析的工程 JSON');
+
+ }catch(err){ fail++; P('\u2717 测试中断: ' + (err && err.message || err)); }
+ P('== ' + pass + ' 通过 / ' + fail + ' 失败 ==');
+ P('PROBE_END');
+})();
+</script>
